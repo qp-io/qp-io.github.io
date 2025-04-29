@@ -1,35 +1,36 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>qp-io</title>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/atom-one-dark.min.css">
   <style>
-    /* Глобальные стили */
+    /* Глобальный box-sizing */
     *, *::before, *::after {
       box-sizing: border-box;
     }
-    
-    /* Переменные тем */
+
+    /* Темы и переменные */
     body {
       --bg-color: #f9f9f9;
       --text-color: #333;
+      --border-color: #ccc;
       --card-bg: #fff;
       --button-bg: #007BFF;
       --button-text: #fff;
-      
+
+      background-color: var(--bg-color);
+      color: var(--text-color);
       font-family: Arial, sans-serif;
       margin: 0;
       padding: 20px;
       transition: background-color 0.3s, color 0.3s;
-      background-color: var(--bg-color);
-      color: var(--text-color);
     }
-    
+
     body.dark-theme {
       --bg-color: #1e1e1e;
       --text-color: #c9d1d9;
+      --border-color: #555;
       --card-bg: #282c34;
       --button-bg: #444;
       --button-text: #fff;
@@ -37,52 +38,51 @@
 
     h1 {
       text-align: center;
-      margin-bottom: 20px;
-      font-size: 28px;
+      margin-bottom: 30px;
     }
-    
-    .container {
-      max-width: 400px;
-      margin: 0 auto;
-      padding: 20px;
-      background: rgba(255,255,255,0.05);
-      border-radius: 8px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    }
-    
+
     .controls {
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 10px;
       margin-bottom: 20px;
     }
-    
+
     button {
       background-color: var(--button-bg);
       color: var(--button-text);
       border: none;
       border-radius: 20px;
-      padding: 12px 24px;
-      font-size: 16px;
+      padding: 10px 20px;
       cursor: pointer;
-      transition: opacity 0.3s ease, transform 0.2s ease;
+      transition: opacity 0.3s;
+      font-size: 16px;
       width: 100%;
       text-align: center;
     }
-    
+
     button:hover {
       opacity: 0.9;
-      transform: translateY(-2px);
     }
-    
+
     .repo-description {
       text-align: center;
       font-size: 14px;
-      color: #888;
+      color: #aaa;
       margin-top: -8px;
       margin-bottom: 20px;
     }
-    
+
+    .container {
+      max-width: 400px;
+      margin: 0 auto;
+      padding: 15px;
+    }
+
+    a.button-link {
+      text-decoration: none;
+    }
+
     #theme-toggle {
       position: fixed;
       top: 20px;
@@ -100,37 +100,34 @@
       cursor: pointer;
       z-index: 1000;
       transition: all 0.3s ease;
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
-filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.2));
     }
   </style>
 </head>
 <body class="dark-theme">
+  <h1>qp-io</h1>
+
   <div class="container">
-    <h1>qp-io</h1>
-    
     <div class="controls">
-      <a href="https://qp-io.github.io/singbox-config-gen/" target="_blank" style="text-decoration: none;">
+      <!-- Singbox Tun Config Generator -->
+      <a href="https://qp-io.github.io/singbox-config-gen/" target="_blank" class="button-link">
         <button>Config Generator for Singbox Tun</button>
       </a>
       <div class="repo-description">Генератор конфигураций для Singbox TUN режима</div>
-      
-      <a href="https://qp-io.github.io/magitricle-editor/" target="_blank" style="text-decoration: none;">
+
+      <!-- MagiTrickle Editor -->
+      <a href="https://qp-io.github.io/magitricle-editor/" target="_blank" class="button-link">
         <button>MagiTrickle Editor</button>
       </a>
       <div class="repo-description">Редактор групп для MagiTrickle</div>
     </div>
   </div>
-  
+
   <!-- Кнопка переключения темы -->
   <button id="theme-toggle" onclick="toggleTheme()">🌓</button>
-  
+
   <script>
-    // Функция переключения темы
     function toggleTheme() {
-      const bodyClass = document.body.classList;
-      bodyClass.toggle('dark-theme');
-      bodyClass.toggle('light-theme');
+      document.body.classList.toggle('dark-theme');
     }
   </script>
 </body>
