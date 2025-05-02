@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MagiTrickle Editor</title>
+  <style>
+    /* Глобальный box-sizing */
+    *, *::before, *::after { box-sizing: border-box; }
+
+    /* Темы и переменные */
+    body {
+      --bg-color: #f9f9f9;
+      --text-color: #333;
+      --border-color: #ccc;
+      --card-bg: #fff;
+      --button-bg: #007BFF;
+      --button-text: #fff;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      transition: background-color 0.3s, color 0.3s;
+    }
+
+    body.dark-theme {
+      --bg-color: #1e1e1e;
+      --text-color: #c9d1d9;
+      --border-color: #555;
+      --card-bg: #282c34;
+      --button-bg: #444;
+      --button-text: #fff;
+    }
+
+    h1 { text-align: center; margin-bottom: 30px; }
+
+    .controls {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    button {
+      background-color: var(--button-bg);
+      color: var(--button-text);
+      border: none;
+      border-radius: 20px;
+      padding: 10px 20px;
+      cursor: pointer;
+      transition: opacity 0.3s;
+      font-size: 16px;
+    }
+
+    button:hover { opacity: 0.9; }
+
+    input[type="text"], textarea {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      background-color: var(--card-bg);
+      color: var(--text-color);
+      transition: border-color 0.3s;
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 80px;
+      margin-bottom: 8px;
+    }
+
+    .group {
+      border: 1px solid var(--border-color);
+      background-color: var(--card-bg);
+      padding: 10px;
+      margin-bottom: 15px;
+      border-radius: 4px;
+    }
+
+    .group-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .group-name {
+      flex: 0 0 200px;
+      max-width: 200px;
+      padding: 6px;
+    }
+
+    .group-interface {
+      flex: 0 0 100px;
+      max-width: 100px;
+      padding: 6px;
+    }
+
+    .trash-btn {
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      background-color: var(--button-bg);
+      color: var(--button-text);
+      transition: opacity 0.3s;
+    }
+
+    .trash-btn:hover { opacity: 0.9; }
+
+    .url-load {
+      display: flex;
+      gap: 5px;
+      margin-top: 8px;
+    }
+
+    .url-load input {
+      flex: 1;
+      padding: 6px;
+    }
+
+    .url-load button {
+      padding: 6px 10px;
+      border-radius: 10px;
+    }
+
+    #theme-toggle {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      background-color: var(--button-bg);
+      color: var(--button-text);
+      border: none;
+      cursor: pointer;
+      transition: opacity 0.3s;
+    }
+
+    @media (min-width: 768px) {
+      .group {
+        width: fit-content;
+        margin-left: auto;
+        margin-right: auto;
+        padding: 10px;
+        border: 1px solid var(--border-color);
+        background-color: var(--card-bg);
+        border-radius: 4px;
+      }
+    }
+  </style>
+</head>
+<body class="dark-theme">
+  <h1>MagiTrickle Editor</h1>
+  <div class="controls">
+    <input type="file" id="fileInput" accept=".mtrickle" style="display:none;">
+    <button id="selectFileBtn">Загрузить</button>
+    <button id="saveBtn">Сохранить</button>
+  </div>
+  <div class="controls">
+    <button id="addGroupBtn">Добавить группу</button>
+  </div>
+  <div id="groupsContainer"></div>
+  <button id="theme-toggle" onclick="toggleTheme()">🌓</button>
+
+  <script>
+    let jsonData = null;
+    const fileInput = document.getElementById('fileInput');
+    const selectFileBtn = document.getElementById('selectFileBtn');
+    const saveBtn = document.getElementById('saveBtn');
+    const addGroupBtn = document.getElementById('addGroupBtn');
+    const groupsContainer = document.getElementById('groupsContainer');
+
+    selectFileBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', e => {
+      const file = e.target.files[0]; if (!file) return;
+      const reader = new FileReader();
+      reader.onload = ev => {
+        try {
+          jsonData = JSON.parse(ev.target.result);
+          if (!Array.isArray(jsonData.groups)) jsonData.groups = [];
+          renderGroups();
+        } catch {
+          alert('Ошибка при чтении файла');
+        }
+      };
+      reader.readAsText(file);
+    });
+
+    function generateId() {
+      return Math.floor(Math.random() * 2**32).toString(16).padStart(8, '0');
+    }
+
+    function getRootDomain(domain) {
+      domain = domain.trim().toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '');
+      domain = domain.split(/[\/?#]/)[0];
+      const parts = domain.split('.');
+      return parts.length <= 2 ? domain : parts.slice(-2).join('.');
+    }
+
+    function updateDataFromDOM() {
+      Array.from(groupsContainer.getElementsByClassName('group')).forEach(div => {
+        const id = div.dataset.groupId;
+        const group = jsonData.groups.find(g => g.id === id);
+        if (!group) return;
+        group.name = div.querySelector('.group-name').value;
+        group.interface = div.querySelector('.group-interface').value;
+        const rules = div.querySelector('.group-rules').value.split('\n').map(l => l.trim()).filter(Boolean);
+        group.rules = rules.map(r => {
+          const existing = (group.rules||[]).find(x => x.rule === r);
+          return existing || { id: generateId(), name: '', type: 'namespace', rule: r, enable: true };
+        });
+      });
+    }
+
+    function renderGroups() {
+      groupsContainer.innerHTML = '';
+      jsonData.groups.forEach(group => {
+        const div = document.createElement('div'); div.className = 'group'; div.dataset.groupId = group.id;
+
+        const hdr = document.createElement('div'); hdr.className = 'group-header';
+        const nameI = document.createElement('input');
+        nameI.className = 'group-name'; nameI.type = 'text'; nameI.value = group.name||'';
+        nameI.placeholder = 'Название группы'; nameI.maxLength = 20;
+        const ifaceI = document.createElement('input');
+        ifaceI.className = 'group-interface'; ifaceI.type = 'text'; ifaceI.value = group.interface||'';
+        ifaceI.placeholder = 'Интерфейс'; ifaceI.maxLength = 10;
+        const delBtn = document.createElement('button');
+        delBtn.className = 'trash-btn'; delBtn.innerHTML = '🗑️'; delBtn.title = 'Удалить группу';
+        delBtn.addEventListener('click', () => {
+          if (confirm('Удалить группу?')) {
+            updateDataFromDOM();
+            jsonData.groups = jsonData.groups.filter(g => g.id !== group.id);
+            renderGroups();
+          }
+        });
+        hdr.append(nameI, ifaceI, delBtn);
+        div.append(hdr);
+
+        const txt = document.createElement('textarea'); txt.className = 'group-rules';
+        txt.value = (group.rules||[]).map(r=>r.rule).join('\n'); div.append(txt);
+
+        const urlDiv = document.createElement('div'); urlDiv.className = 'url-load';
+        const urlIn = document.createElement('input'); urlIn.type='text'; urlIn.placeholder='Ссылка на список';
+        const loadBtn = document.createElement('button'); loadBtn.textContent='Загрузить';
+        loadBtn.addEventListener('click', () => {
+          let url = urlIn.value.trim(); if (!url) return alert('Введите ссылку');
+          if (url.includes('github.com') && url.includes('/blob/')) url = url.replace('github.com','raw.githubusercontent.com').replace('/blob','');
+          fetch(url).then(r=>r.text()).then(text=>{
+            const set=new Set(); text.split(/\r?\n/).forEach(l=>{l=l.trim().replace(/\s+@.*$/,''); const rd=getRootDomain(l); rd&&set.add(rd);});
+            txt.value=Array.from(set).join('\n');
+          }).catch(e=>alert('Ошибка: '+e));
+        });
+        urlDiv.append(urlIn, loadBtn); div.append(urlDiv);
+
+        groupsContainer.append(div);
+      });
+    }
+
+    addGroupBtn.addEventListener('click', () => {
+      if (!jsonData) jsonData={groups:[]}; updateDataFromDOM();
+      jsonData.groups.unshift({ id: generateId(), name:'', interface:'', enable:true, rules:[] }); renderGroups();
+    });
+
+    saveBtn.addEventListener('click', () => {
+      if (!jsonData) return alert('Нечего сохранять'); updateDataFromDOM();
+      const blob=new Blob([JSON.stringify(jsonData,null,2)],{type:'application/json'});
+      const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='updated_groups.mtrickle'; a.click();
+    });
+
+    function toggleTheme() { document.body.classList.toggle('dark-theme'); }
+  </script>
+</body>
+</html>
