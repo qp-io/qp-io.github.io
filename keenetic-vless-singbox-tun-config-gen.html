@@ -392,7 +392,7 @@
 
     // Функция для генерации конфигурации
     function generateConfig() {
-      // Если конфиг не изменен и загружен, показываем его
+      // Если конфиг не изменен и загружен, показываем его как есть
       if (!isConfigModified && config.inbounds && config.inbounds.length > 0) {
         const output = document.getElementById('output');
         output.textContent = JSON.stringify(config, null, 2);
@@ -411,15 +411,33 @@
         }
       };
 
-      // Сохраняем существующие VLESS outbounds из загруженного конфига
+      // Сохраняем существующие VLESS outbounds
       let existingVlessOutbounds = [];
       if (config.outbounds) {
         existingVlessOutbounds = config.outbounds.filter(ob => ob.type === "vless");
       }
 
+      // Находим максимальный tunIndex из существующих TUN-интерфейсов
+      let existingTunIndexes = [];
+      if (config.inbounds) {
+        existingTunIndexes = config.inbounds
+          .filter(ib => ib.type === "tun" && ib.address && ib.address.length > 0)
+          .map(ib => {
+            const addr = ib.address[0];
+            const match = addr.match(/172\.19\.0\.(\d+)\/30/);
+            if (match) {
+              const x = parseInt(match[1], 10);
+              return Math.floor((x - 1) / 4); // Вычисляем tunIndex
+            }
+            return -1;
+          })
+          .filter(index => index >= 0);
+      }
+      const maxTunIndex = existingTunIndexes.length > 0 ? Math.max(...existingTunIndexes) : -1;
+      let tunIndex = maxTunIndex + 1;
+
       const interfaces = document.querySelectorAll('.interface-container');
       let warnings = [];
-      let tunIndex = 0;
       let socksPort = baseSocksPort;
       let hasSelectors = false;
       const newSelectors = [];
@@ -442,11 +460,16 @@
 
         // Добавляем TUN inbound
         let tunInbound = config.inbounds ? config.inbounds.find(ib => ib.type === "tun" && ib.interface_name === interfaceName) : null;
-        if (!tunInbound) {
+        if (tunInbound) {
+          const newTunInbound = { ...tunInbound };
+          delete newTunInbound.domain_strategy; // Удаляем domain_strategy
+          newConfig.inbounds.push(newTunInbound);
+        } else {
+          const address = `172.19.0.${4 * tunIndex + 1}/30`;
           tunInbound = {
             type: "tun",
             interface_name: interfaceName,
-            address: [`172.19.0.${tunIndex + 1}/30`],
+            address: [address],
             mtu: 9000,
             auto_route: false,
             strict_route: false,
@@ -455,22 +478,26 @@
             stack: "gvisor",
             tag: `tun-in-${interfaceName}`
           };
+          newConfig.inbounds.push(tunInbound);
           tunIndex++;
         }
-        newConfig.inbounds.push(tunInbound);
 
         // Добавляем SOCKS inbound
         let socksInbound = config.inbounds ? config.inbounds.find(ib => ib.type === "mixed" && ib.tag === `mixed-in-${interfaceName}`) : null;
-        if (!socksInbound) {
+        if (socksInbound) {
+          const newSocksInbound = { ...socksInbound };
+          delete newSocksInbound.domain_strategy; // Удаляем domain_strategy
+          newConfig.inbounds.push(newSocksInbound);
+        } else {
           socksInbound = {
             type: "mixed",
             tag: `mixed-in-${interfaceName}`,
             listen: "0.0.0.0",
             listen_port: getNextFreePort(newConfig.inbounds, socksPort)
           };
+          newConfig.inbounds.push(socksInbound);
           socksPort = socksInbound.listen_port + 1;
         }
-        newConfig.inbounds.push(socksInbound);
 
         // Собираем теги outbound для интерфейса
         const outboundTags = [];
@@ -484,7 +511,9 @@
               outboundTags.push(link);
               if (!usedTags.has(link)) {
                 const outbound = existingVlessOutbounds.find(ob => ob.tag === link);
-                newOutbounds.push(outbound);
+                const newOutbound = { ...outbound };
+                delete newOutbound.domain_strategy; // Удаляем domain_strategy
+                newOutbounds.push(newOutbound);
                 usedTags.add(link);
               }
             }
