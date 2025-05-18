@@ -301,8 +301,7 @@
         server_port,
         uuid,
         flow: params.get("flow") || "",
-        packet_encoding: params.get("packetEncoding") || "xudp",
-        domain_strategy: params.get("domainStrategy") || "ipv4_only"
+        packet_encoding: params.get("packetEncoding") || "xudp"
       };
 
       // Обработка шифрования
@@ -405,7 +404,11 @@
 
       // Инициализация новой конфигурации
       let newConfig = {
-        log: { disabled: true }
+        log: { 
+          disabled: true,
+          level: "debug",
+          output: "box.log"
+        }
       };
 
       // Сохраняем существующие VLESS outbounds из загруженного конфига
@@ -447,7 +450,6 @@
             mtu: 9000,
             auto_route: false,
             strict_route: false,
-            domain_strategy: "ipv4_only",
             endpoint_independent_nat: true,
             sniff: false,
             stack: "gvisor",
