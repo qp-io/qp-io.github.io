@@ -572,7 +572,8 @@
       newConfig.outbounds = [
         ...newSelectors,
         ...newOutbounds,
-        { type: "block", tag: "blocked", type: "direct", tag: "direct" }
+        { type: "direct", tag: "direct" },
+        { type: "block", tag: "blocked" }
       ];
 
       // Создаем итоговый объект с правильным порядком ключей
