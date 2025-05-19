@@ -562,6 +562,7 @@
           clash_api: {
             external_controller: "0.0.0.0:9090",
             external_ui: "ui",
+            external_ui_download_detour: "direct",
             access_control_allow_private_network: true
           }
         };
@@ -571,6 +572,7 @@
       newConfig.outbounds = [
         ...newSelectors,
         ...newOutbounds,
+        { type: "direct", tag: "direct" }
         { type: "block", tag: "blocked" }
       ];
 
