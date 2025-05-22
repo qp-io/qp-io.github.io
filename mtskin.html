@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MT</title>
+  
+  <style>
+    :root {
+      --bg-color: #f9f9f9;
+      --text-color: #333;
+      --border-color: #ccc;
+      --card-bg: #fff;
+      --button-bg: #007BFF;
+      --button-text: #fff;
+      --accent-color: #007BFF;
+      --input-border: #ccc;
+      --input-bg: #fff;
+      --delete-icon: #666;
+      --success-color: #28a745;
+    }
+
+    body.dark-theme {
+      --bg-color: #1e1e1e;
+      --text-color: #c9d1d9;
+      --border-color: #555;
+      --card-bg: #282c34;
+      --button-bg: #444;
+      --button-text: #fff;
+      --accent-color: #61afef;
+      --input-border: #555;
+      --input-bg: #21252b;
+      --delete-icon: #c9d1d9;
+      --success-color: #61afef;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      transition: all 0.3s ease;
+    }
+
+    .container {
+      max-width: 800px;
+      margin: auto;
+      padding: 0 10px;
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 20px;
+      font-size: 1.5rem;
+    }
+
+    .toolbar {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    button {
+      background-color: var(--button-bg);
+      color: var(--button-text);
+      border: none;
+      border-radius: 20px;
+      padding: 10px 16px;
+      cursor: pointer;
+      font-size: 16px;
+      transition: opacity 0.3s;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    button:hover {
+      opacity: 0.9;
+    }
+
+    .group {
+      border: 1px solid var(--border-color);
+      background-color: var(--card-bg);
+      padding: 10px;
+      margin-bottom: 15px;
+      border-radius: 4px;
+      position: relative;
+      transition: border-color 0.3s;
+    }
+
+    .unsaved {
+      border-color: #f00;
+    }
+
+    .group-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .group-fields {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      max-width: 100%;
+    }
+
+    .group-name {
+      flex: 1 1 45%;
+      max-width: 45%;
+      padding: 6px;
+      border: 1px solid var(--input-border);
+      border-radius: 4px;
+      background-color: var(--input-bg);
+      color: var(--text-color);
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+
+    .interface-container {
+      position: relative;
+      flex: 1 1 45%;
+      max-width: 45%;
+    }
+
+    .interface-display {
+      padding: 6px;
+      border: 1px solid var(--input-border);
+      border-radius: 4px;
+      background-color: var(--input-bg);
+      color: var(--text-color);
+      font-size: 14px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .interface-list {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      border: 1px solid var(--input-border);
+      border-top: none;
+      border-radius: 0 0 4px 4px;
+      background-color: var(--card-bg);
+      color: var(--text-color);
+      max-height: 200px;
+      overflow-y: auto;
+      z-index: 10;
+      display: none;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+
+    .interface-list.show {
+      display: block;
+    }
+
+    .interface-list div {
+      padding: 6px;
+      cursor: pointer;
+    }
+
+    .interface-list div:hover {
+      background-color: var(--input-bg);
+    }
+
+    .group-name::placeholder {
+      color: var(--text-color);
+      opacity: 0.6;
+    }
+
+    .trash-btn {
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      background-color: transparent;
+      border: none;
+      cursor: pointer;
+    }
+
+    .trash-btn svg {
+      fill: var(--delete-icon);
+      width: 20px;
+      height: 20px;
+    }
+
+    .trash-btn:hover {
+      opacity: 0.8;
+    }
+
+    textarea {
+      width: 100%;
+      resize: vertical;
+      min-height: 80px;
+      padding: 8px;
+      border: 1px solid var(--input-border);
+      border-radius: 4px;
+      background-color: var(--input-bg);
+      color: var(--text-color);
+      font-size: 14px;
+      margin-bottom: 8px;
+      box-sizing: border-box;
+    }
+
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 40px;
+      height: 20px;
+      margin-left: auto;
+    }
+
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: var(--border-color);
+      transition: .4s;
+      border-radius: 20px;
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 16px;
+      width: 16px;
+      left: 2px;
+      bottom: 2px;
+      background-color: white;
+      transition: .4s;
+      border-radius: 50%;
+    }
+
+    input:checked + .slider {
+      background-color: var(--accent-color);
+    }
+
+    input:focus + .slider {
+      box-shadow: 0 0 1px var(--accent-color);
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(18px);
+    }
+
+    #overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 1000;
+    }
+
+    #overlay span {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: white;
+      font-size: 20px;
+    }
+
+    #theme-toggle {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      background-color: var(--button-bg);
+      color: var(--button-text);
+      border: none;
+      cursor: pointer;
+      transition: opacity 0.3s;
+    }
+
+    #theme-toggle:hover {
+      opacity: 0.9;
+    }
+
+    @media (min-width: 768px) {
+      .group {
+        width: fit-content;
+        margin-left: auto;
+        margin-right: auto;
+        padding: 10px;
+        border: 1px solid var(--border-color);
+        background-color: var(--card-bg);
+        border-radius: 4px;
+      }
+    }
+
+    .notification {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background-color: var(--success-color);
+      color: white;
+      padding: 12px 20px;
+      border-radius: 4px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s, transform 0.3s;
+      transform: translateY(20px);
+      z-index: 999;
+    }
+
+    .notification.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 999;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.3s ease;
+    }
+
+    .modal.show {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .modal-content {
+      background-color: var(--card-bg);
+      padding: 20px;
+      border-radius: 8px;
+      max-width: 400px;
+      width: 90%;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+      position: relative;
+      animation: modalFadeIn 0.3s ease-out;
+    }
+
+    @keyframes modalFadeIn {
+      from {
+        transform: scale(0.8);
+        opacity: 0;
+      }
+      to {
+        transform: scale(1);
+        opacity: 1;
+      }
+    }
+
+    .modal-content h3 {
+      margin-top: 0;
+      margin-bottom: 15px;
+    }
+
+    .modal-buttons {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    .modal-buttons button {
+      padding: 8px 16px;
+      font-size: 14px;
+    }
+
+    .modal-close {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      font-size: 20px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body class="dark-theme">
+  <div id="overlay"><span>Загрузка...</span></div>
+  <div id="app"></div>
+  <div class="notification" id="save-notification">Сохранено</div>
+  
+  <!-- Кастомное модальное окно -->
+  <div class="modal" id="custom-confirm-modal">
+    <div class="modal-content">
+      <span class="modal-close" id="modal-close">&times;</span>
+      <h3>Подтвердите удаление</h3>
+      <p>Вы действительно хотите удалить эту группу?</p>
+      <div class="modal-buttons">
+        <button id="modal-cancel">Отмена</button>
+        <button id="modal-confirm">Удалить</button>
+      </div>
+    </div>
+  </div>
+
+  <button id="theme-toggle">🌓</button>
+
+  <script>
+    function createElement(tag, attributes = {}, innerHTML = "") {
+      const element = document.createElement(tag);
+      Object.entries(attributes).forEach(([key, value]) => {
+        element.setAttribute(key, value);
+      });
+      element.innerHTML = innerHTML;
+      return element;
+    }
+
+    function showOverlay() {
+      document.querySelector("#overlay").style.display = "block";
+    }
+
+    function hideOverlay() {
+      document.querySelector("#overlay").style.display = "none";
+    }
+
+    function rulesToString(rules) {
+      return rules.map(rule => {
+        let prefix = "";
+        switch (rule.type) {
+          case 'wildcard': prefix = "||"; break;
+          case 'regex': prefix = "/"; rule.rule += "/"; break;
+          case 'domain': prefix = "^"; break;
+          default: prefix = ""; 
+        }
+        return (rule.enable ? "" : "#") + prefix + rule.rule;
+      }).join('\n');
+    }
+
+    function stringToRules(str) {
+      return str.split('\n')
+        .map(line => line.trim())
+        .filter(line => line)
+        .map(line => {
+          let enable = true;
+          if (line.startsWith('#')) {
+            enable = false;
+            line = line.slice(1);
+          }
+
+          if (line.startsWith('||')) {
+            return { rule: line.slice(2), type: 'wildcard', name: line.slice(2), enable };
+          }
+          if (line.startsWith('/') && line.endsWith('/')) {
+            return { rule: line.slice(1, -1), type: 'regex', name: line.slice(1, -1), enable };
+          }
+          if (line.startsWith('^')) {
+            return { rule: line.slice(1), type: 'domain', name: line.slice(1), enable };
+          }
+          return { rule: line, type: 'namespace', name: line, enable };
+        });
+    }
+
+    function toggleTheme() {
+      document.body.classList.toggle("dark-theme");
+    }
+
+    function showNotification(message) {
+      const notification = document.getElementById("save-notification");
+      notification.textContent = message;
+      notification.className = "notification show";
+      setTimeout(() => {
+        notification.className = "notification";
+      }, 3000);
+    }
+
+    function hideAllInterfaceLists() {
+      document.querySelectorAll('.interface-list').forEach(list => {
+        list.style.display = 'none';
+      });
+    }
+
+    class App {
+      constructor(element) {
+        this.API_BASE = "/api/v1";
+        this.root = element;
+        this.groupsElement = null;
+        this.interfaces = [];
+        this.savedGroups = [];
+        this.deleteCallbacks = {};
+        this.confirmModal = document.getElementById("custom-confirm-modal");
+        this.modalConfirm = document.getElementById("modal-confirm");
+        this.modalCancel = document.getElementById("modal-cancel");
+        this.modalClose = document.getElementById("modal-close");
+        this.bindModalEvents();
+
+        this.render();
+        this.bindEvents();
+
+        (async () => {
+          this.interfaces = await this.fetchInterfaces();
+          await this.fetchGroups();
+        })();
+      }
+
+      render() {
+        this.root.innerHTML = `
+          <div class="container">
+            <h1>MT</h1>
+            <div class="toolbar">
+              <button id="btnCreateGroup">➕</button>
+              <button id="btnSaveConfig">💾</button>
+            </div>
+            <div id="groups"></div>
+          </div>
+        `;
+        this.groupsElement = this.root.querySelector("#groups");
+      }
+
+      bindEvents() {
+        this.root.querySelector("#btnSaveConfig").onclick = () => this.saveConfig();
+        this.root.querySelector("#btnCreateGroup").onclick = () => this.createGroup();
+        document.getElementById("theme-toggle").onclick = toggleTheme;
+        document.addEventListener('click', (e) => {
+          if (!e.target.closest('.interface-container')) {
+            hideAllInterfaceLists();
+          }
+        });
+      }
+
+      bindModalEvents() {
+        this.modalConfirm.onclick = () => {
+          if (this.deleteCallbacks.confirm) {
+            this.deleteCallbacks.confirm();
+            this.hideModal();
+          }
+        };
+        
+        this.modalCancel.onclick = () => this.hideModal();
+        this.modalClose.onclick = () => this.hideModal();
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape' && this.confirmModal.classList.contains('show')) {
+            this.hideModal();
+          }
+        });
+      }
+
+      showModal(confirmCallback) {
+        this.deleteCallbacks.confirm = confirmCallback;
+        this.confirmModal.classList.add('show');
+      }
+
+      hideModal() {
+        this.confirmModal.classList.remove('show');
+        this.deleteCallbacks.confirm = null;
+      }
+
+      async safeFetch(url, options) {
+        showOverlay();
+        try {
+          const response = await fetch(url, options);
+          return await response.json();
+        } catch (e) {
+          console.error("Ошибка fetch:", e);
+          return null;
+        } finally {
+          hideOverlay();
+        }
+      }
+
+      async fetchInterfaces() {
+        const data = await this.safeFetch(`${this.API_BASE}/system/interfaces`);
+        return data?.interfaces.map(iface => iface.id) || [];
+      }
+
+      populateInterfaces(container, interfaces, selectedInterface = null) {
+        container.innerHTML = "";
+        interfaces.forEach(iface => {
+          const option = createElement("option", { value: iface }, iface);
+          if (iface === selectedInterface) option.selected = true;
+          container.appendChild(option);
+        });
+        if (selectedInterface && !interfaces.includes(selectedInterface)) {
+          container.appendChild(createElement("option", { value: selectedInterface, selected: "" }, selectedInterface));
+        }
+      }
+
+      markUnsaved(element) {
+        element.classList.add("unsaved");
+      }
+
+      async fetchGroups() {
+        const data = await this.safeFetch(`${this.API_BASE}/groups?with_rules=true`);
+        this.groupsElement.innerHTML = "";
+        if (!data || !data.groups) return;
+        this.savedGroups = data.groups;
+        data.groups.forEach(group => this.renderGroup(group));
+      }
+
+      renderGroup(group) {
+        const groupElement = createElement("div", {
+          id: `group-${group.id}`,
+          class: "group"
+        }, `
+          <div class="group-header">
+            <button class="trash-btn" title="Удалить группу">
+              <svg viewBox="0 0 24 24">
+                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+              </svg>
+            </button>
+            <div class="group-fields">
+              <input class="group-name" id="group-${group.id}-name" value="${group.name}" maxlength="15">
+              <div class="interface-container">
+                <div class="interface-display" id="group-${group.id}-interface">${group.interface}</div>
+                <div class="interface-list" id="group-${group.id}-interface-list">
+                  ${this.interfaces.map(iface => `<div data-value="${iface}">${iface}</div>`).join('')}
+                </div>
+              </div>
+            </div>
+            <label class="switch">
+              <input id="group-${group.id}-enable" type="checkbox" ${group.enable ? "checked" : ""}>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <textarea id="group-${group.id}-rules" rows="10" placeholder="Каждое правило на новой строке. Примеры:\nexample.com - namespace\n#example.com - отключено\n||wildcard.com - wildcard\n/regex.+/ - regex\n^domain.com - domain"></textarea>
+        `);
+
+        const interfaceDisplay = groupElement.querySelector(`#group-${group.id}-interface`);
+        const interfaceList = groupElement.querySelector(`#group-${group.id}-interface-list`);
+
+        // Обновляем список интерфейсов при нажатии
+        interfaceDisplay.onclick = () => {
+          hideAllInterfaceLists();
+          interfaceList.style.display = interfaceList.style.display === 'block' ? 'none' : 'block';
+        };
+
+        // Выбор интерфейса
+        interfaceList.querySelectorAll('div').forEach(item => {
+          item.onclick = () => {
+            const selected = item.getAttribute('data-value');
+            interfaceDisplay.textContent = selected;
+            interfaceList.style.display = 'none';
+            this.markUnsaved(groupElement);
+          };
+        });
+
+        const rulesTextarea = groupElement.querySelector(`#group-${group.id}-rules`);
+        rulesTextarea.value = rulesToString(group.rules);
+
+        groupElement.querySelector(`#group-${group.id}-name`).onchange = () => this.markUnsaved(groupElement);
+        
+        const enableCheckbox = groupElement.querySelector(`#group-${group.id}-enable`);
+        enableCheckbox.onchange = () => this.markUnsaved(groupElement);
+        
+        rulesTextarea.oninput = () => this.markUnsaved(groupElement);
+        
+        groupElement.querySelector(".trash-btn").onclick = () => this.showDeleteConfirmation(group.id);
+
+        this.groupsElement.insertBefore(groupElement, this.groupsElement.firstChild);
+      }
+
+      async createGroup() {
+        const result = await this.safeFetch(`${this.API_BASE}/groups`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: "new",
+            interface: this.interfaces[0] || "",
+            enable: true
+          })
+        });
+
+        if (result && result.id) {
+          const group = await this.safeFetch(`${this.API_BASE}/groups/${result.id}?with_rules=true`);
+          this.renderGroup(group);
+        }
+      }
+
+      async saveRules(groupId, rulesString) {
+        const rules = stringToRules(rulesString);
+        const existingRules = await this.safeFetch(`${this.API_BASE}/groups/${groupId}/rules`);
+        if (existingRules?.rules) {
+          for (const rule of existingRules.rules) {
+            await this.safeFetch(`${this.API_BASE}/groups/${groupId}/rules/${rule.id}`, { method: "DELETE" });
+          }
+        }
+
+        for (const rule of rules) {
+          await this.safeFetch(`${this.API_BASE}/groups/${groupId}/rules`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(rule)
+          });
+        }
+      }
+
+      async saveConfig() {
+        const unsavedGroups = this.groupsElement.querySelectorAll(".unsaved");
+        
+        for (const groupElement of unsavedGroups) {
+          const groupId = groupElement.id.replace("group-", "");
+          
+          const enable = groupElement.querySelector(`#group-${groupId}-enable`).checked;
+          
+          const interfaceDisplay = groupElement.querySelector(`#group-${groupId}-interface`);
+          const interfaceValue = interfaceDisplay.textContent.trim();
+          
+          await this.safeFetch(`${this.API_BASE}/groups/${groupId}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: document.getElementById(`group-${groupId}-name`).value,
+              interface: interfaceValue,
+              enable: enable
+            })
+          });
+          
+          const rulesString = document.getElementById(`group-${groupId}-rules`).value;
+          await this.saveRules(groupId, rulesString);
+          
+          groupElement.classList.remove("unsaved");
+        }
+        
+        await this.safeFetch(`${this.API_BASE}/system/config/save`, { method: "POST" });
+        await this.fetchGroups();
+        showNotification("Конфигурация сохранена");
+      }
+
+      showDeleteConfirmation(groupId) {
+        this.showModal(async () => {
+          await this.safeFetch(`${this.API_BASE}/groups/${groupId}`, { method: "DELETE" });
+          await this.fetchGroups();
+          this.hideModal();
+        });
+      }
+
+      async fetchGroups() {
+        const data = await this.safeFetch(`${this.API_BASE}/groups?with_rules=true`);
+        this.groupsElement.innerHTML = "";
+        if (!data || !data.groups) return;
+        this.savedGroups = data.groups;
+        data.groups.forEach(group => this.renderGroup(group));
+      }
+    }
+
+    window.addEventListener("load", () => {
+      const appElement = document.querySelector("#app");
+      if (appElement) new App(appElement);
+    });
+  </script>
+</body>
+</html>
