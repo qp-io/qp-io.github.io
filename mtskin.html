@@ -443,12 +443,16 @@
 
     function rulesToString(rules) {
       return rules.map(rule => {
+        if (rule.type === 'ipnet') {
+          return (rule.enable ? "" : "#") + rule.rule;
+        }
+        
         let prefix = "";
         switch (rule.type) {
           case 'wildcard': prefix = "||"; break;
           case 'regex': prefix = "/"; rule.rule += "/"; break;
           case 'domain': prefix = "^"; break;
-          default: prefix = ""; 
+          default: prefix = ""; // namespace
         }
         return (rule.enable ? "" : "#") + prefix + rule.rule;
       }).join('\n');
@@ -465,16 +469,26 @@
             line = line.slice(1);
           }
 
+          // Проверка на IP или подсеть
+          if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(\/\d{1,2})?$/.test(line)) {
+            return { 
+              rule: line, 
+              type: 'ipnet', 
+              name: line,
+              enable: enable
+            };
+          }
+
           if (line.startsWith('||')) {
-            return { rule: line.slice(2), type: 'wildcard', name: line.slice(2), enable };
+            return { rule: line.slice(2), type: 'wildcard', name: line.slice(2), enable: enable };
           }
           if (line.startsWith('/') && line.endsWith('/')) {
-            return { rule: line.slice(1, -1), type: 'regex', name: line.slice(1, -1), enable };
+            return { rule: line.slice(1, -1), type: 'regex', name: line.slice(1, -1), enable: enable };
           }
           if (line.startsWith('^')) {
-            return { rule: line.slice(1), type: 'domain', name: line.slice(1), enable };
+            return { rule: line.slice(1), type: 'domain', name: line.slice(1), enable: enable };
           }
-          return { rule: line, type: 'namespace', name: line, enable };
+          return { rule: line, type: 'namespace', name: line, enable: enable };
         });
     }
 
@@ -639,19 +653,17 @@
               <span class="slider"></span>
             </label>
           </div>
-          <textarea id="group-${group.id}-rules" rows="10" placeholder="Каждое правило на новой строке. Примеры:\nexample.com - namespace\n#example.com - отключено\n||wildcard.com - wildcard\n/regex.+/ - regex\n^domain.com - domain"></textarea>
+          <textarea id="group-${group.id}-rules" rows="10" placeholder="Каждое правило на новой строке. Примеры:\nexample.com - namespace\n#example.com - отключено\n||wildcard.com - wildcard\n/regex.+/ - regex\n^domain.com - domain\n10.50.10.50 - IP\n10.50.20.0/24 - подсеть"></textarea>
         `);
 
         const interfaceDisplay = groupElement.querySelector(`#group-${group.id}-interface`);
         const interfaceList = groupElement.querySelector(`#group-${group.id}-interface-list`);
 
-        // Обновляем список интерфейсов при нажатии
         interfaceDisplay.onclick = () => {
           hideAllInterfaceLists();
           interfaceList.style.display = interfaceList.style.display === 'block' ? 'none' : 'block';
         };
 
-        // Выбор интерфейса
         interfaceList.querySelectorAll('div').forEach(item => {
           item.onclick = () => {
             const selected = item.getAttribute('data-value');
@@ -665,12 +677,9 @@
         rulesTextarea.value = rulesToString(group.rules);
 
         groupElement.querySelector(`#group-${group.id}-name`).onchange = () => this.markUnsaved(groupElement);
-        
         const enableCheckbox = groupElement.querySelector(`#group-${group.id}-enable`);
         enableCheckbox.onchange = () => this.markUnsaved(groupElement);
-        
         rulesTextarea.oninput = () => this.markUnsaved(groupElement);
-        
         groupElement.querySelector(".trash-btn").onclick = () => this.showDeleteConfirmation(group.id);
 
         this.groupsElement.insertBefore(groupElement, this.groupsElement.firstChild);
