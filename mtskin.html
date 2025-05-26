@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MT</title>
+  <title>MagiTrickle by qp-io</title>
   
   <style>
     :root {
@@ -12,11 +12,11 @@
       --border-color: #ccc;
       --card-bg: #fff;
       --button-bg: #007BFF;
-      --button-text: #fff;
+      --button-text: #000;
       --accent-color: #007BFF;
       --input-border: #ccc;
       --input-bg: #fff;
-      --delete-icon: #666;
+      --delete-icon: #000;
       --success-color: #28a745;
     }
 
@@ -41,12 +41,17 @@
       background-color: var(--bg-color);
       color: var(--text-color);
       transition: all 0.3s ease;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
     }
 
     .container {
       max-width: 800px;
       margin: auto;
       padding: 0 10px;
+      flex: 1 0 auto;
+      padding-bottom: 64px;
     }
 
     h1 {
@@ -60,10 +65,15 @@
       justify-content: center;
       gap: 10px;
       margin-bottom: 10px;
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      background: transparent;
+      box-shadow: none;
     }
 
     button {
-      background-color: var(--button-bg);
+      background-color: transparent;
       color: var(--button-text);
       border: none;
       border-radius: 20px;
@@ -74,13 +84,104 @@
       display: flex;
       align-items: center;
       gap: 4px;
+      box-shadow: none;
     }
 
-    button:hover {
-      opacity: 0.9;
+    .toolbar button svg,
+    .trash-btn svg,
+    .toggle-rules svg,
+    #theme-toggle svg {
+      width: 24px;
+      height: 24px;
+      display: block;
+      stroke: currentColor;
+      fill: none;
+    }
+
+    body.dark-theme .toolbar button,
+    body.dark-theme .trash-btn,
+    body.dark-theme .toggle-rules,
+    body.dark-theme #theme-toggle {
+      color: #fff;
+    }
+    body:not(.dark-theme) .toolbar button,
+    body:not(.dark-theme) .trash-btn,
+    body:not(.dark-theme) .toggle-rules,
+    body:not(.dark-theme) #theme-toggle {
+      color: #000;
+    }
+
+    #theme-toggle {
+      /* position: fixed; */
+      /* left: 50%; */
+      /* bottom: 24px; */
+      /* transform: translateX(-50%); */
+      /* z-index: 1100; */
+      /* margin-right: 8px; */
+    }
+
+    .theme-toolbar {
+      position: fixed;
+      left: 50%;
+      bottom: 16px;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 16px;
+      justify-content: center;
+      margin-top: 0;
+      margin-bottom: 0;
+      z-index: 1100;
+      flex-shrink: 0;
+    }
+
+    .skin-label {
+      font-size: 14px;
+      line-height: 24px;
+      color: inherit;
+      opacity: 0.8;
+      margin-right: 4px;
+    }
+
+    .toolbar-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      border: none;
+      box-shadow: none;
+      padding: 0;
+      cursor: pointer;
+      transition: opacity 0.3s;
+      font-size: 0;
+    }
+
+    .theme-toolbar svg {
+      width: 24px;
+      height: 24px;
+      stroke: currentColor;
+      fill: currentColor;
+      display: block;
+    }
+
+    body.dark-theme .theme-toolbar .toolbar-icon,
+    body.dark-theme .theme-toolbar .skin-label {
+      color: #fff;
+    }
+    body:not(.dark-theme) .theme-toolbar .toolbar-icon,
+    body:not(.dark-theme) .theme-toolbar .skin-label {
+      color: #000;
     }
 
     .group {
+      max-width: 350px;
+      width: 100%;
+      margin: 0 auto;
+      box-sizing: border-box;
       border: 1px solid var(--border-color);
       background-color: var(--card-bg);
       padding: 10px;
@@ -104,68 +205,21 @@
     .group-fields {
       display: flex;
       gap: 8px;
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
+      justify-content: stretch;
       align-items: center;
-      max-width: 100%;
+      width: 100%;
     }
 
     .group-name {
-      flex: 1 1 45%;
-      max-width: 45%;
-      padding: 6px;
-      border: 1px solid var(--input-border);
-      border-radius: 4px;
-      background-color: var(--input-bg);
-      color: var(--text-color);
-      font-size: 14px;
+      width: 100px;
       box-sizing: border-box;
-    }
-
-    .interface-container {
-      position: relative;
-      flex: 1 1 45%;
-      max-width: 45%;
-    }
-
-    .interface-display {
       padding: 6px;
       border: 1px solid var(--input-border);
       border-radius: 4px;
       background-color: var(--input-bg);
       color: var(--text-color);
       font-size: 14px;
-      cursor: pointer;
-      user-select: none;
-    }
-
-    .interface-list {
-      position: absolute;
-      top: 100%;
-      left: 0;
-      right: 0;
-      border: 1px solid var(--input-border);
-      border-top: none;
-      border-radius: 0 0 4px 4px;
-      background-color: var(--card-bg);
-      color: var(--text-color);
-      max-height: 200px;
-      overflow-y: auto;
-      z-index: 10;
-      display: none;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-    }
-
-    .interface-list.show {
-      display: block;
-    }
-
-    .interface-list div {
-      padding: 6px;
-      cursor: pointer;
-    }
-
-    .interface-list div:hover {
-      background-color: var(--input-bg);
     }
 
     .group-name::placeholder {
@@ -173,27 +227,22 @@
       opacity: 0.6;
     }
 
-    .trash-btn {
-      width: 32px;
-      height: 32px;
+    .trash-btn,
+    .toggle-rules {
+      width: 24px;
+      height: 24px;
       padding: 0;
-      border-radius: 6px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 16px;
+      font-size: 24px;
       background-color: transparent;
       border: none;
       cursor: pointer;
     }
 
-    .trash-btn svg {
-      fill: var(--delete-icon);
-      width: 20px;
-      height: 20px;
-    }
-
-    .trash-btn:hover {
+    .trash-btn:hover,
+    .toggle-rules:hover {
       opacity: 0.8;
     }
 
@@ -214,7 +263,7 @@
     .switch {
       position: relative;
       display: inline-block;
-      width: 40px;
+      width: 30px;
       height: 20px;
       margin-left: auto;
     }
@@ -258,7 +307,7 @@
     }
 
     input:checked + .slider:before {
-      transform: translateX(18px);
+      transform: translateX(10px);
     }
 
     #overlay {
@@ -267,51 +316,9 @@
       left: 0;
       width: 100%;
       height: 100%;
-      background: rgba(0, 0, 0, 0.5);
+      background: transparent;
       z-index: 1000;
-    }
-
-    #overlay span {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      color: white;
-      font-size: 20px;
-    }
-
-    #theme-toggle {
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      width: 40px;
-      height: 40px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 18px;
-      background-color: var(--button-bg);
-      color: var(--button-text);
-      border: none;
-      cursor: pointer;
-      transition: opacity 0.3s;
-    }
-
-    #theme-toggle:hover {
-      opacity: 0.9;
-    }
-
-    @media (min-width: 768px) {
-      .group {
-        width: fit-content;
-        margin-left: auto;
-        margin-right: auto;
-        padding: 10px;
-        border: 1px solid var(--border-color);
-        background-color: var(--card-bg);
-        border-radius: 4px;
-      }
+      display: none;
     }
 
     .notification {
@@ -361,7 +368,7 @@
       border-radius: 8px;
       max-width: 400px;
       width: 90%;
-      box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+      box-shadow: 0 0 10px rgba(0,0,0,0.3);
       position: relative;
       animation: modalFadeIn 0.3s ease-out;
     }
@@ -401,12 +408,92 @@
       font-size: 20px;
       cursor: pointer;
     }
+
+    .interface-container {
+      position: relative;
+      width: 100px;
+    }
+
+    .interface-display {
+      padding: 6px;
+      border: 1px solid var(--input-border);
+      border-radius: 4px;
+      background-color: var(--input-bg);
+      color: var(--text-color);
+      font-size: 14px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .interface-list {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      border: 1px solid var(--input-border);
+      border-top: none;
+      border-radius: 0 0 4px 4px;
+      background-color: var(--card-bg);
+      color: var(--text-color);
+      max-height: 200px;
+      overflow-y: auto;
+      z-index: 10;
+      display: none;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+
+    .interface-list.show {
+      display: block;
+    }
+
+    .interface-list div {
+      padding: 6px;
+      cursor: pointer;
+    }
+
+    .interface-list div:hover {
+      background-color: var(--input-bg);
+    }
+
+    .rules-section {
+      overflow: hidden;
+      transition: max-height 0.3s ease;
+      max-height: 200px;
+    }
+
+    .rules-section.collapsed {
+      max-height: 0;
+    }
+
+    .group-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .group-controls .switch {
+      margin-left: auto;
+      margin-right: 0;
+    }
+
+    body, html {
+      min-height: 100vh;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+    }
+    .container {
+      flex: 1 0 auto;
+    }
+    .theme-toolbar {
+      flex-shrink: 0;
+    }
   </style>
 </head>
 <body class="dark-theme">
-  <div id="overlay"><span>Загрузка...</span></div>
+  <div id="overlay"></div>
   <div id="app"></div>
-  <div class="notification" id="save-notification">Сохранено</div>
   
   <!-- Кастомное модальное окно -->
   <div class="modal" id="custom-confirm-modal">
@@ -421,7 +508,15 @@
     </div>
   </div>
 
-  <button id="theme-toggle">🌓</button>
+  <div class="theme-toolbar">
+    <span class="skin-label">skin by qp-io</span>
+    <a href="https://qp-io.github.io/" target="_blank" rel="noopener" title="Открыть репозиторий" class="toolbar-icon">
+      <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="none"><path fill="currentColor" fill-rule="evenodd" d="M8 1C4.133 1 1 4.13 1 7.993c0 3.09 2.006 5.71 4.787 6.635.35.064.478-.152.478-.337 0-.166-.006-.606-.01-1.19-1.947.423-2.357-.937-2.357-.937-.319-.808-.778-1.023-.778-1.023-.635-.434.048-.425.048-.425.703.05 1.073.72 1.073.72.624 1.07 1.638.76 2.037.582.063-.452.244-.76.444-.935-1.554-.176-3.188-.776-3.188-3.456 0-.763.273-1.388.72-1.876-.072-.177-.312-.888.07-1.85 0 0 .586-.189 1.924.716A6.711 6.711 0 018 4.381c.595.003 1.194.08 1.753.236 1.336-.905 1.923-.717 1.923-.717.382.963.142 1.674.07 1.85.448.49.72 1.114.72 1.877 0 2.686-1.638 3.278-3.197 3.45.251.216.475.643.475 1.296 0 .934-.009 1.688-.009 1.918 0 .187.127.404.482.336A6.996 6.996 0 0015 7.993 6.997 6.997 0 008 1z" clip-rule="evenodd"></path></svg>
+    </a>
+    <button id="theme-toggle" title="Переключить тему" class="toolbar-icon">
+      <!-- SVG будет подставляться динамически -->
+    </button>
+  </div>
 
   <script>
     function createElement(tag, attributes = {}, innerHTML = "") {
@@ -452,7 +547,7 @@
           case 'wildcard': prefix = "||"; break;
           case 'regex': prefix = "/"; rule.rule += "/"; break;
           case 'domain': prefix = "^"; break;
-          default: prefix = ""; // namespace
+          default: prefix = ""; 
         }
         return (rule.enable ? "" : "#") + prefix + rule.rule;
       }).join('\n');
@@ -469,7 +564,6 @@
             line = line.slice(1);
           }
 
-          // Проверка на IP или подсеть
           if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(\/\d{1,2})?$/.test(line)) {
             return { 
               rule: line, 
@@ -494,15 +588,21 @@
 
     function toggleTheme() {
       document.body.classList.toggle("dark-theme");
+      updateThemeToggleIcon();
+    }
+
+    function updateThemeToggleIcon() {
+      const themeToggle = document.getElementById("theme-toggle");
+      if (!themeToggle) return;
+      // SVG для светлой темы
+      const lightSVG = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="24" height="24"><path d="M21.0672 11.8568L20.4253 11.469L21.0672 11.8568ZM12.1432 2.93276L11.7553 2.29085V2.29085L12.1432 2.93276ZM21.25 12C21.25 17.1086 17.1086 21.25 12 21.25V22.75C17.9371 22.75 22.75 17.9371 22.75 12H21.25ZM12 21.25C6.89137 21.25 2.75 17.1086 2.75 12H1.25C1.25 17.9371 6.06294 22.75 12 22.75V21.25ZM2.75 12C2.75 6.89137 6.89137 2.75 12 2.75V1.25C6.06294 1.25 1.25 6.06294 1.25 12H2.75ZM15.5 14.25C12.3244 14.25 9.75 11.6756 9.75 8.5H8.25C8.25 12.5041 11.4959 15.75 15.5 15.75V14.25ZM20.4253 11.469C19.4172 13.1373 17.5882 14.25 15.5 14.25V15.75C18.1349 15.75 20.4407 14.3439 21.7092 12.2447L20.4253 11.469ZM9.75 8.5C9.75 6.41182 10.8627 4.5828 12.531 3.57467L11.7553 2.29085C9.65609 3.5593 8.25 5.86509 8.25 8.5H9.75ZM12 2.75C11.9115 2.75 11.8077 2.71008 11.7324 2.63168C11.6686 2.56527 11.6538 2.50244 11.6503 2.47703C11.6461 2.44587 11.6482 2.35557 11.7553 2.29085L12.531 3.57467C13.0342 3.27065 13.196 2.71398 13.1368 2.27627C13.0754 1.82126 12.7166 1.25 12 1.25V2.75ZM21.7092 12.2447C21.6444 12.3518 21.5541 12.3539 21.523 12.3497C21.4976 12.3462 21.4347 12.3314 21.3683 12.2676C21.2899 12.1923 21.25 12.0885 21.25 12H22.75C22.75 11.2834 22.1787 10.9246 21.7237 10.8632C21.286 10.804 20.7293 10.9658 20.4253 11.469L21.7092 12.2447Z" fill="currentColor"></path></svg>`;
+      // SVG для тёмной темы
+      const darkSVG = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="24" height="24"><circle cx="12" cy="12" r="5" stroke="currentColor" stroke-width="1.5"></circle><path d="M12 2V4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path><path d="M12 20V22" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path><path d="M4 12L2 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path><path d="M22 12L20 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path><path d="M19.7778 4.22266L17.5558 6.25424" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path><path d="M4.22217 4.22266L6.44418 6.25424" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path><path d="M6.44434 17.5557L4.22211 19.7779" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path><path d="M19.7778 19.7773L17.5558 17.5551" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg>`;
+      themeToggle.innerHTML = document.body.classList.contains('dark-theme') ? darkSVG : lightSVG;
     }
 
     function showNotification(message) {
-      const notification = document.getElementById("save-notification");
-      notification.textContent = message;
-      notification.className = "notification show";
-      setTimeout(() => {
-        notification.className = "notification";
-      }, 3000);
+      // ничего не делаем
     }
 
     function hideAllInterfaceLists() {
@@ -519,11 +619,13 @@
         this.interfaces = [];
         this.savedGroups = [];
         this.deleteCallbacks = {};
+        this.deletedGroups = new Set();
         this.confirmModal = document.getElementById("custom-confirm-modal");
         this.modalConfirm = document.getElementById("modal-confirm");
         this.modalCancel = document.getElementById("modal-cancel");
         this.modalClose = document.getElementById("modal-close");
         this.bindModalEvents();
+        this.newGroups = [];
 
         this.render();
         this.bindEvents();
@@ -537,19 +639,24 @@
       render() {
         this.root.innerHTML = `
           <div class="container">
-            <h1>MT</h1>
-            <div class="toolbar">
-              <button id="btnCreateGroup">➕</button>
-              <button id="btnSaveConfig">💾</button>
+            <h1>MagiTrickle</h1>
+            <div class="toolbar" id="main-toolbar">
+              <button id="btnCreateGroup" title="Добавить группу">
+                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+                  <path d="M16 4C18.175 4.01211 19.3529 4.10856 20.1213 4.87694C21 5.75562 21 7.16983 21 9.99826V15.9983C21 18.8267 21 20.2409 20.1213 21.1196C19.2426 21.9983 17.8284 21.9983 15 21.9983H9C6.17157 21.9983 4.75736 21.9983 3.87868 21.1196C3 20.2409 3 18.8267 3 15.9983V9.99826C3 7.16983 3 5.75562 3.87868 4.87694C4.64706 4.10856 5.82497 4.01211 8 4" stroke="currentColor" stroke-width="1.5"></path>
+                  <path d="M8 3.5C8 2.67157 8.67157 2 9.5 2H14.5C15.3284 2 16 2.67157 16 3.5V4.5C16 5.32843 15.3284 6 14.5 6H9.5C8.67157 6 8 5.32843 8 4.5V3.5Z" stroke="currentColor" stroke-width="1.5"></path>
+                  <path d="M15 13L12 13M12 13L9 13M12 13L12 10M12 13L12 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
+                </svg>
+              </button>
             </div>
             <div id="groups"></div>
           </div>
         `;
         this.groupsElement = this.root.querySelector("#groups");
+        this.updateSaveButton();
       }
 
       bindEvents() {
-        this.root.querySelector("#btnSaveConfig").onclick = () => this.saveConfig();
         this.root.querySelector("#btnCreateGroup").onclick = () => this.createGroup();
         document.getElementById("theme-toggle").onclick = toggleTheme;
         document.addEventListener('click', (e) => {
@@ -618,6 +725,7 @@
 
       markUnsaved(element) {
         element.classList.add("unsaved");
+        this.updateSaveButton();
       }
 
       async fetchGroups() {
@@ -628,15 +736,17 @@
         data.groups.forEach(group => this.renderGroup(group));
       }
 
-      renderGroup(group) {
+      renderGroup(group, isNew = false) {
         const groupElement = createElement("div", {
           id: `group-${group.id}`,
-          class: "group"
+          class: `group${isNew || group.isNew ? ' unsaved' : ''}`
         }, `
           <div class="group-header">
             <button class="trash-btn" title="Удалить группу">
-              <svg viewBox="0 0 24 24">
-                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+                <path d="M16 4C18.175 4.01211 19.3529 4.10856 20.1213 4.87694C21 5.75562 21 7.16983 21 9.99826V15.9983C21 18.8267 21 20.2409 20.1213 21.1196C19.2426 21.9983 17.8284 21.9983 15 21.9983H9C6.17157 21.9983 4.75736 21.9983 3.87868 21.1196C3 20.2409 3 18.8267 3 15.9983V9.99826C3 7.16983 3 5.75562 3.87868 4.87694C4.64706 4.10856 5.82497 4.01211 8 4" stroke="currentColor" stroke-width="1.5"></path>
+                <path d="M8 3.5C8 2.67157 8.67157 2 9.5 2H14.5C15.3284 2 16 2.67157 16 3.5V4.5C16 5.32843 15.3284 6 14.5 6H9.5C8.67157 6 8 5.32843 8 4.5V3.5Z" stroke="currentColor" stroke-width="1.5"></path>
+                <path d="M14.5 11L9.50004 16M9.50002 11L14.5 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
               </svg>
             </button>
             <div class="group-fields">
@@ -648,17 +758,36 @@
                 </div>
               </div>
             </div>
-            <label class="switch">
-              <input id="group-${group.id}-enable" type="checkbox" ${group.enable ? "checked" : ""}>
-              <span class="slider"></span>
-            </label>
+            <div class="group-controls">
+              <label class="switch">
+                <input id="group-${group.id}-enable" type="checkbox" ${group.enable ? "checked" : ""}>
+                <span class="slider"></span>
+              </label>
+              <button class="toggle-rules" id="group-${group.id}-toggle-rules" title="Показать/скрыть правила">
+                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+                  <path d="M16 4.00195C18.175 4.01406 19.3529 4.11051 20.1213 4.87889C21 5.75757 21 7.17179 21 10.0002V16.0002C21 18.8286 21 20.2429 20.1213 21.1215C19.2426 22.0002 17.8284 22.0002 15 22.0002H9C6.17157 22.0002 4.75736 22.0002 3.87868 21.1215C3 20.2429 3 18.8286 3 16.0002V10.0002C3 7.17179 3 5.75757 3.87868 4.87889C4.64706 4.11051 5.82497 4.01406 8 4.00195" stroke="currentColor" stroke-width="1.5"></path>
+                  <path d="M10.5 14L17 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
+                  <path d="M7 14H7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
+                  <path d="M7 10.5H7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
+                  <path d="M7 17.5H7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
+                  <path d="M10.5 10.5H17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
+                  <path d="M10.5 17.5H17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
+                  <path d="M8 3.5C8 2.67157 8.67157 2 9.5 2H14.5C15.3284 2 16 2.67157 16 3.5V4.5C16 5.32843 15.3284 6 14.5 6H9.5C8.67157 6 8 5.32843 8 4.5V3.5Z" stroke="currentColor" stroke-width="1.5"></path>
+                </svg>
+              </button>
+            </div>
           </div>
-          <textarea id="group-${group.id}-rules" rows="10" placeholder="Каждое правило на новой строке. Примеры:\nexample.com - namespace\n#example.com - отключено\n||wildcard.com - wildcard\n/regex.+/ - regex\n^domain.com - domain\n10.50.10.50 - IP\n10.50.20.0/24 - подсеть"></textarea>
+          <div class="rules-section" id="group-${group.id}-rules-container">
+            <textarea id="group-${group.id}-rules" rows="10" placeholder="Каждое правило на новой строке. Примеры:\nexample.com - namespace\n#example.com - отключено\n||wildcard.com - wildcard\n/regex.+/ - regex\n^domain.com - domain\n10.50.10.50 - IP\n10.50.20.0/24 - подсеть"></textarea>
+          </div>
         `);
 
         const interfaceDisplay = groupElement.querySelector(`#group-${group.id}-interface`);
         const interfaceList = groupElement.querySelector(`#group-${group.id}-interface-list`);
+        const rulesContainer = groupElement.querySelector(`#group-${group.id}-rules-container`);
+        const toggleBtn = groupElement.querySelector(`#group-${group.id}-toggle-rules`);
 
+        // Инициализация интерфейса
         interfaceDisplay.onclick = () => {
           hideAllInterfaceLists();
           interfaceList.style.display = interfaceList.style.display === 'block' ? 'none' : 'block';
@@ -673,33 +802,50 @@
           };
         });
 
+        // Инициализация спойлера
+        rulesContainer.classList.add('collapsed');
+        toggleBtn.onclick = () => {
+          rulesContainer.classList.toggle('collapsed');
+          toggleBtn.classList.toggle('collapsed');
+        };
+
+        // Инициализация правил
         const rulesTextarea = groupElement.querySelector(`#group-${group.id}-rules`);
         rulesTextarea.value = rulesToString(group.rules);
-
-        groupElement.querySelector(`#group-${group.id}-name`).onchange = () => this.markUnsaved(groupElement);
-        const enableCheckbox = groupElement.querySelector(`#group-${group.id}-enable`);
-        enableCheckbox.onchange = () => this.markUnsaved(groupElement);
         rulesTextarea.oninput = () => this.markUnsaved(groupElement);
-        groupElement.querySelector(".trash-btn").onclick = () => this.showDeleteConfirmation(group.id);
+
+        // Обработчики событий для полей
+        groupElement.querySelector(`#group-${group.id}-name`).onchange = () => this.markUnsaved(groupElement);
+        groupElement.querySelector(`#group-${group.id}-enable`).onchange = () => this.markUnsaved(groupElement);
+
+        // Обработчики удаления группы
+        groupElement.querySelector(".trash-btn").onclick = () => {
+          if (group.isNew || group.id.toString().startsWith('new-')) {
+            this.newGroups = this.newGroups.filter(g => g.id !== group.id);
+          } else {
+            this.deletedGroups.add(group.id);
+          }
+          groupElement.remove();
+          this.updateSaveButton();
+        };
 
         this.groupsElement.insertBefore(groupElement, this.groupsElement.firstChild);
       }
 
       async createGroup() {
-        const result = await this.safeFetch(`${this.API_BASE}/groups`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: "new",
-            interface: this.interfaces[0] || "",
-            enable: true
-          })
-        });
-
-        if (result && result.id) {
-          const group = await this.safeFetch(`${this.API_BASE}/groups/${result.id}?with_rules=true`);
-          this.renderGroup(group);
-        }
+        // Создаём временную группу только в DOM
+        const tempId = 'new-' + Date.now() + '-' + Math.floor(Math.random() * 10000);
+        const group = {
+          id: tempId,
+          name: 'new',
+          interface: this.interfaces[0] || '',
+          enable: true,
+          rules: [],
+          isNew: true
+        };
+        this.newGroups.push(group);
+        this.renderGroup(group, true);
+        this.updateSaveButton();
       }
 
       async saveRules(groupId, rulesString) {
@@ -721,16 +867,37 @@
       }
 
       async saveConfig() {
+        // 1. Сохраняем новые группы
+        for (const group of this.newGroups) {
+          const res = await this.safeFetch(`${this.API_BASE}/groups`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: document.getElementById(`group-${group.id}-name`).value,
+              interface: document.getElementById(`group-${group.id}-interface`).textContent.trim(),
+              enable: document.getElementById(`group-${group.id}-enable`).checked
+            })
+          });
+          // Если успешно создана, можно добавить правила (если нужно)
+          if (res && res.id) {
+            const rulesString = document.getElementById(`group-${group.id}-rules`).value;
+            await this.saveRules(res.id, rulesString);
+          }
+        }
+        this.newGroups = [];
+        // 2. Удаляем группы
+        for (const groupId of this.deletedGroups) {
+          await this.safeFetch(`${this.API_BASE}/groups/${groupId}`, { method: "DELETE" });
+        }
+        this.deletedGroups.clear();
+        // 3. Сохраняем изменения в существующих группах
         const unsavedGroups = this.groupsElement.querySelectorAll(".unsaved");
-        
         for (const groupElement of unsavedGroups) {
           const groupId = groupElement.id.replace("group-", "");
-          
+          if (groupId.startsWith('new-')) continue; // Новые уже обработаны выше
           const enable = groupElement.querySelector(`#group-${groupId}-enable`).checked;
-          
           const interfaceDisplay = groupElement.querySelector(`#group-${groupId}-interface`);
           const interfaceValue = interfaceDisplay.textContent.trim();
-          
           await this.safeFetch(`${this.API_BASE}/groups/${groupId}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
@@ -740,38 +907,39 @@
               enable: enable
             })
           });
-          
           const rulesString = document.getElementById(`group-${groupId}-rules`).value;
           await this.saveRules(groupId, rulesString);
-          
           groupElement.classList.remove("unsaved");
         }
-        
         await this.safeFetch(`${this.API_BASE}/system/config/save`, { method: "POST" });
         await this.fetchGroups();
-        showNotification("Конфигурация сохранена");
+        showNotification("Сохранено");
+        this.updateSaveButton();
       }
 
-      showDeleteConfirmation(groupId) {
-        this.showModal(async () => {
-          await this.safeFetch(`${this.API_BASE}/groups/${groupId}`, { method: "DELETE" });
-          await this.fetchGroups();
-          this.hideModal();
-        });
-      }
-
-      async fetchGroups() {
-        const data = await this.safeFetch(`${this.API_BASE}/groups?with_rules=true`);
-        this.groupsElement.innerHTML = "";
-        if (!data || !data.groups) return;
-        this.savedGroups = data.groups;
-        data.groups.forEach(group => this.renderGroup(group));
+      updateSaveButton() {
+        const toolbar = document.getElementById('main-toolbar');
+        if (!toolbar) return;
+        let saveBtn = document.getElementById('btnSaveConfig');
+        const hasUnsaved = (this.groupsElement && this.groupsElement.querySelector('.unsaved')) || (this.deletedGroups && this.deletedGroups.size > 0);
+        if (hasUnsaved && !saveBtn) {
+          saveBtn = document.createElement('button');
+          saveBtn.id = 'btnSaveConfig';
+          saveBtn.title = 'Сохранить';
+          saveBtn.style.marginLeft = '10px';
+          saveBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="24" height="24"><path d="M16 4C18.175 4.01211 19.3529 4.10856 20.1213 4.87694C21 5.75562 21 7.16983 21 9.99826V15.9983C21 18.8267 21 20.2409 20.1213 21.1196C19.2426 21.9983 17.8284 21.9983 15 21.9983H9C6.17157 21.9983 4.75736 21.9983 3.87868 21.1196C3 20.2409 3 18.8267 3 15.9983V9.99826C3 7.16983 3 5.75562 3.87868 4.87694C4.64706 4.10856 5.82497 4.01211 8 4" stroke="currentColor" stroke-width="1.5"></path><path d="M9 13.4L10.7143 15L15 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path><path d="M8 3.5C8 2.67157 8.67157 2 9.5 2H14.5C15.3284 2 16 2.67157 16 3.5V4.5C16 5.32843 15.3284 6 14.5 6H9.5C8.67157 6 8 5.32843 8 4.5V3.5Z" stroke="currentColor" stroke-width="1.5"></path></svg>`;
+          saveBtn.onclick = () => this.saveConfig();
+          toolbar.appendChild(saveBtn);
+        } else if (!hasUnsaved && saveBtn) {
+          saveBtn.remove();
+        }
       }
     }
 
     window.addEventListener("load", () => {
       const appElement = document.querySelector("#app");
       if (appElement) new App(appElement);
+      updateThemeToggleIcon();
     });
   </script>
 </body>
