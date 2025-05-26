@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MagiTrickle skin by qp-io</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #2c3e50, #3498db);
+            color: white;
+            padding: 30px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+            animation: shimmer 3s infinite;
+        }
+
+        @keyframes shimmer {
+            0%, 100% { transform: rotate(0deg); }
+            50% { transform: rotate(180deg); }
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            position: relative;
+            z-index: 1;
+        }
+
+        .header .subtitle {
+            font-size: 1.2em;
+            opacity: 0.9;
+            position: relative;
+            z-index: 1;
+        }
+
+        .content {
+            padding: 40px;
+        }
+
+        .section {
+            margin-bottom: 40px;
+            padding: 25px;
+            background: rgba(248, 249, 250, 0.8);
+            border-radius: 12px;
+            border-left: 4px solid #3498db;
+            transition: all 0.3s ease;
+        }
+
+        .section:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+        }
+
+        .section h2 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .section h2::before {
+            content: '🎨';
+            font-size: 1.2em;
+        }
+
+        .method {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        }
+
+        .method h3 {
+            color: #e74c3c;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+
+        .command-container {
+            margin: 15px 0;
+        }
+
+        .command-label {
+            font-weight: bold;
+            color: #34495e;
+            margin-bottom: 8px;
+            display: block;
+        }
+
+        .command-box {
+            position: relative;
+            background: #2c3e50;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+
+        .command {
+            background: linear-gradient(135deg, #2c3e50, #34495e);
+            color: #ecf0f1;
+            padding: 15px 50px 15px 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            border: none;
+            width: 100%;
+            resize: none;
+            outline: none;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+        }
+
+        .copy-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s ease;
+        }
+
+        .copy-btn:hover {
+            background: #2980b9;
+            transform: scale(1.05);
+        }
+
+        .copy-btn:active {
+            transform: scale(0.95);
+        }
+
+        .copy-btn.copied {
+            background: #27ae60;
+        }
+
+        .warning {
+            background: linear-gradient(135deg, #f39c12, #e67e22);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .warning::before {
+            content: '⚠️';
+            font-size: 1.2em;
+        }
+
+        .info {
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .info::before {
+            content: 'ℹ️';
+            font-size: 1.2em;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 20px;
+            background: #ecf0f1;
+            color: #7f8c8d;
+            font-size: 0.9em;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                margin: 10px;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+            
+            .content {
+                padding: 20px;
+            }
+            
+            .command {
+                font-size: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>MagiTrickle skin by qp-io</h1>
+            <div class="subtitle">Инструкция по установке кастомного скина</div>
+        </div>
+
+        <div class="content">
+            <div class="info">
+                Данный скин позволяет кастомизировать интерфейс MagiTrickle. Выберите подходящий способ установки ниже.
+            </div>
+
+            <div class="section">
+                <h2>Способ 1: Замена стокового скина</h2>
+                
+                <div class="method">
+                    <h3>Установка скина вместо стокового</h3>
+                    <div class="command-container">
+                        <span class="command-label">Команда для установки:</span>
+                        <div class="command-box">
+                            <textarea class="command" readonly>opkg update && opkg install curl && [ -f /opt/usr/share/magitrickle/skins/default/index.html ] && mv /opt/usr/share/magitrickle/skins/default/index.html /opt/usr/share/magitrickle/skins/default/index_stok.html && curl -L -o /opt/usr/share/magitrickle/skins/default/index.html https://github.com/qp-io/qp-io.github.io/raw/refs/heads/main/mtskin.html</textarea>
+                            <button class="copy-btn" onclick="copyCommand(this)">Копировать</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="method">
+                    <h3>Восстановление стокового скина</h3>
+                    <div class="command-container">
+                        <span class="command-label">Команда для восстановления:</span>
+                        <div class="command-box">
+                            <textarea class="command" readonly>[ -f /opt/usr/share/magitrickle/skins/default/index_stok.html ] && mv /opt/usr/share/magitrickle/skins/default/index_stok.html /opt/usr/share/magitrickle/skins/default/index.html</textarea>
+                            <button class="copy-btn" onclick="copyCommand(this)">Копировать</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>Способ 2: Установка как отдельный скин</h2>
+                
+                <div class="method">
+                    <h3>Установка отдельного скина</h3>
+                    <div class="command-container">
+                        <span class="command-label">Команда для установки:</span>
+                        <div class="command-box">
+                            <textarea class="command" readonly>opkg update && opkg install curl && mkdir -p /opt/usr/share/magitrickle/skins/qp && curl -L -o /opt/usr/share/magitrickle/skins/qp/index.html https://github.com/qp-io/qp-io.github.io/raw/refs/heads/main/mtskin.html && sed -i 's/skin: default/skin: qp/' /opt/var/lib/magitrickle/config.yaml</textarea>
+                            <button class="copy-btn" onclick="copyCommand(this)">Копировать</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="method">
+                    <h3>Возврат к стоковому скину</h3>
+                    <div class="command-container">
+                        <span class="command-label">Команда для возврата:</span>
+                        <div class="command-box">
+                            <textarea class="command" readonly>sed -i 's/skin: qp/skin: default/' /opt/var/lib/magitrickle/config.yaml</textarea>
+                            <button class="copy-btn" onclick="copyCommand(this)">Копировать</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="warning">
+                Рекомендуется использовать второй способ (отдельный скин), так как он позволяет легко переключаться между скинами без потери оригинального.
+            </div>
+        </div>
+
+        <div class="footer">
+            Создано qp-io | MagiTrickle Custom Skin
+        </div>
+    </div>
+
+    <script>
+        function copyCommand(button) {
+            const commandBox = button.parentElement;
+            const command = commandBox.querySelector('.command');
+            
+            // Создаем временный элемент для копирования
+            const tempTextarea = document.createElement('textarea');
+            tempTextarea.value = command.value;
+            document.body.appendChild(tempTextarea);
+            tempTextarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempTextarea);
+            
+            // Изменяем текст кнопки
+            const originalText = button.textContent;
+            button.textContent = 'Скопировано!';
+            button.classList.add('copied');
+            
+            // Возвращаем оригинальный текст через 2 секунды
+            setTimeout(() => {
+                button.textContent = originalText;
+                button.classList.remove('copied');
+            }, 2000);
+        }
+
+        // Добавляем анимацию появления секций
+        document.addEventListener('DOMContentLoaded', function() {
+            const sections = document.querySelectorAll('.section');
+            sections.forEach((section, index) => {
+                section.style.opacity = '0';
+                section.style.transform = 'translateY(20px)';
+                
+                setTimeout(() => {
+                    section.style.transition = 'all 0.6s ease';
+                    section.style.opacity = '1';
+                    section.style.transform = 'translateY(0)';
+                }, index * 200);
+            });
+        });
+    </script>
+</body>
+</html>
