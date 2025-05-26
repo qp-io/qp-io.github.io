@@ -17,7 +17,7 @@
             color: #333;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
-            padding: 20px;
+            padding: 10px;
         }
 
         .container {
@@ -33,7 +33,7 @@
         .header {
             background: linear-gradient(135deg, #2c3e50, #3498db);
             color: white;
-            padding: 30px;
+            padding: 25px 20px;
             text-align: center;
             position: relative;
             overflow: hidden;
@@ -56,27 +56,28 @@
         }
 
         .header h1 {
-            font-size: 2.5em;
+            font-size: clamp(1.8rem, 5vw, 2.5rem);
             margin-bottom: 10px;
             text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
             position: relative;
             z-index: 1;
+            word-break: break-word;
         }
 
         .header .subtitle {
-            font-size: 1.2em;
+            font-size: clamp(1rem, 3vw, 1.2rem);
             opacity: 0.9;
             position: relative;
             z-index: 1;
         }
 
         .content {
-            padding: 40px;
+            padding: 20px;
         }
 
         .section {
-            margin-bottom: 40px;
-            padding: 25px;
+            margin-bottom: 30px;
+            padding: 20px 15px;
             background: rgba(248, 249, 250, 0.8);
             border-radius: 12px;
             border-left: 4px solid #3498db;
@@ -91,10 +92,11 @@
         .section h2 {
             color: #2c3e50;
             margin-bottom: 20px;
-            font-size: 1.5em;
+            font-size: clamp(1.2rem, 4vw, 1.5rem);
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
+            flex-wrap: wrap;
         }
 
         .section h2::before {
@@ -104,7 +106,7 @@
 
         .method {
             background: white;
-            padding: 20px;
+            padding: 15px;
             border-radius: 8px;
             margin-bottom: 20px;
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
@@ -113,7 +115,8 @@
         .method h3 {
             color: #e74c3c;
             margin-bottom: 15px;
-            font-size: 1.3em;
+            font-size: clamp(1.1rem, 3.5vw, 1.3rem);
+            word-break: break-word;
         }
 
         .command-container {
@@ -125,6 +128,7 @@
             color: #34495e;
             margin-bottom: 8px;
             display: block;
+            font-size: clamp(0.9rem, 2.5vw, 1rem);
         }
 
         .command-box {
@@ -138,29 +142,34 @@
         .command {
             background: linear-gradient(135deg, #2c3e50, #34495e);
             color: #ecf0f1;
-            padding: 15px 50px 15px 15px;
+            padding: 12px 60px 12px 12px;
             font-family: 'Courier New', monospace;
-            font-size: 14px;
+            font-size: clamp(11px, 2.5vw, 14px);
             border: none;
             width: 100%;
             resize: none;
             outline: none;
             word-wrap: break-word;
             white-space: pre-wrap;
+            min-height: 80px;
+            line-height: 1.4;
         }
 
         .copy-btn {
             position: absolute;
-            top: 10px;
-            right: 10px;
+            top: 8px;
+            right: 8px;
             background: #3498db;
             color: white;
             border: none;
-            padding: 8px 12px;
+            padding: 8px 10px;
             border-radius: 5px;
             cursor: pointer;
-            font-size: 12px;
+            font-size: clamp(10px, 2vw, 12px);
             transition: all 0.3s ease;
+            z-index: 10;
+            min-width: 70px;
+            text-align: center;
         }
 
         .copy-btn:hover {
@@ -183,13 +192,16 @@
             border-radius: 8px;
             margin: 20px 0;
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             gap: 10px;
+            font-size: clamp(0.9rem, 2.5vw, 1rem);
+            line-height: 1.5;
         }
 
         .warning::before {
             content: '⚠️';
             font-size: 1.2em;
+            flex-shrink: 0;
         }
 
         .info {
@@ -199,13 +211,16 @@
             border-radius: 8px;
             margin: 20px 0;
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             gap: 10px;
+            font-size: clamp(0.9rem, 2.5vw, 1rem);
+            line-height: 1.5;
         }
 
         .info::before {
             content: 'ℹ️';
             font-size: 1.2em;
+            flex-shrink: 0;
         }
 
         .footer {
@@ -213,24 +228,159 @@
             padding: 20px;
             background: #ecf0f1;
             color: #7f8c8d;
-            font-size: 0.9em;
+            font-size: clamp(0.8rem, 2vw, 0.9rem);
         }
 
+        /* Мобильные устройства */
         @media (max-width: 768px) {
-            .container {
-                margin: 10px;
+            body {
+                padding: 5px;
+                background-attachment: fixed;
             }
             
-            .header h1 {
-                font-size: 2em;
+            .container {
+                border-radius: 12px;
+                margin: 0;
+            }
+            
+            .header {
+                padding: 20px 15px;
             }
             
             .content {
-                padding: 20px;
+                padding: 15px;
+            }
+            
+            .section {
+                padding: 15px 12px;
+                margin-bottom: 20px;
+            }
+            
+            .method {
+                padding: 12px;
             }
             
             .command {
-                font-size: 12px;
+                padding: 10px 55px 10px 10px;
+                min-height: 70px;
+            }
+            
+            .copy-btn {
+                top: 6px;
+                right: 6px;
+                padding: 6px 8px;
+                min-width: 60px;
+            }
+            
+            .warning, .info {
+                padding: 12px;
+                margin: 15px 0;
+                flex-direction: column;
+                text-align: left;
+            }
+            
+            .warning::before, .info::before {
+                align-self: flex-start;
+                margin-bottom: 5px;
+            }
+        }
+
+        /* Очень маленькие экраны */
+        @media (max-width: 480px) {
+            .container {
+                border-radius: 8px;
+            }
+            
+            .header {
+                padding: 15px 10px;
+            }
+            
+            .content {
+                padding: 10px;
+            }
+            
+            .section {
+                padding: 12px 8px;
+                margin-bottom: 15px;
+            }
+            
+            .method {
+                padding: 10px;
+            }
+            
+            .command {
+                padding: 8px 50px 8px 8px;
+                min-height: 60px;
+            }
+            
+            .copy-btn {
+                top: 4px;
+                right: 4px;
+                padding: 5px 6px;
+                min-width: 50px;
+                font-size: 10px;
+            }
+            
+            .section h2 {
+                gap: 6px;
+            }
+        }
+
+        /* Планшеты в горизонтальной ориентации */
+        @media (min-width: 768px) and (max-width: 1024px) {
+            .container {
+                margin: 15px auto;
+            }
+            
+            .content {
+                padding: 25px;
+            }
+            
+            .section {
+                padding: 20px;
+            }
+        }
+
+        /* Улучшение интерактивности на touch устройствах */
+        @media (hover: none) and (pointer: coarse) {
+            .copy-btn {
+                padding: 10px 12px;
+                min-width: 75px;
+            }
+            
+            .section:hover {
+                transform: none;
+            }
+            
+            .copy-btn:hover {
+                transform: none;
+                background: #3498db;
+            }
+            
+            .copy-btn:active {
+                background: #2980b9;
+                transform: scale(0.98);
+            }
+        }
+
+        /* Темная тема для устройств с поддержкой */
+        @media (prefers-color-scheme: dark) {
+            .container {
+                background: rgba(44, 62, 80, 0.95);
+            }
+            
+            .section {
+                background: rgba(52, 73, 94, 0.8);
+                color: #ecf0f1;
+            }
+            
+            .method {
+                background: rgba(44, 62, 80, 0.9);
+                color: #ecf0f1;
+            }
+            
+            .section h2 {
+                color: #3498db;
             }
         }
     </style>
@@ -281,7 +431,7 @@
                     <div class="command-container">
                         <span class="command-label">Команда для установки:</span>
                         <div class="command-box">
-                            <textarea class="command" readonly>opkg update && opkg install curl && mkdir -p /opt/usr/share/magitrickle/skins/qp && curl -L -o /opt/usr/share/magitrickle/skins/qp/index.html https://github.com/qp-io/qp-io.github.io/raw/refs/heads/main/mtskin.html && sed -i 's/skin: default/skin: qp/' /opt/var/lib/magitrickle/config.yaml</textarea>
+                            <textarea class="command" readonly>opkg update && opkg install curl && mkdir -p /opt/usr/share/magitrickle/skins/qp && curl -L -o /opt/usr/share/magitrickle/skins/qp/index.html https://github.com/qp-io/qp-io.github.io/raw/refs/heads/main/mtskin.html && sed -i 's/skin: default/skin: qp/' /opt/var/lib/magitrickle/config.yaml && /opt/etc/init.d/S99magitrickle reconfigure</textarea>
                             <button class="copy-btn" onclick="copyCommand(this)">Копировать</button>
                         </div>
                     </div>
@@ -292,7 +442,7 @@
                     <div class="command-container">
                         <span class="command-label">Команда для возврата:</span>
                         <div class="command-box">
-                            <textarea class="command" readonly>sed -i 's/skin: qp/skin: default/' /opt/var/lib/magitrickle/config.yaml</textarea>
+                            <textarea class="command" readonly>sed -i 's/skin: qp/skin: default/' /opt/var/lib/magitrickle/config.yaml && /opt/etc/init.d/S99magitrickle reconfigure && rm -rf /opt/usr/share/magitrickle/skins/qp</textarea>
                             <button class="copy-btn" onclick="copyCommand(this)">Копировать</button>
                         </div>
                     </div>
@@ -314,39 +464,71 @@
             const commandBox = button.parentElement;
             const command = commandBox.querySelector('.command');
             
-            // Создаем временный элемент для копирования
-            const tempTextarea = document.createElement('textarea');
-            tempTextarea.value = command.value;
-            document.body.appendChild(tempTextarea);
-            tempTextarea.select();
-            document.execCommand('copy');
-            document.body.removeChild(tempTextarea);
+            // Для мобильных устройств используем более надежный способ
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(command.value).then(() => {
+                    showCopySuccess(button);
+                }).catch(() => {
+                    fallbackCopyTextToClipboard(command.value, button);
+                });
+            } else {
+                fallbackCopyTextToClipboard(command.value, button);
+            }
+        }
+
+        function fallbackCopyTextToClipboard(text, button) {
+            const textArea = document.createElement("textarea");
+            textArea.value = text;
+            textArea.style.position = "fixed";
+            textArea.style.left = "-999999px";
+            textArea.style.top = "-999999px";
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
             
-            // Изменяем текст кнопки
+            try {
+                document.execCommand('copy');
+                showCopySuccess(button);
+            } catch (err) {
+                console.error('Fallback: Oops, unable to copy', err);
+            }
+            
+            document.body.removeChild(textArea);
+        }
+
+        function showCopySuccess(button) {
             const originalText = button.textContent;
             button.textContent = 'Скопировано!';
             button.classList.add('copied');
             
-            // Возвращаем оригинальный текст через 2 секунды
             setTimeout(() => {
                 button.textContent = originalText;
                 button.classList.remove('copied');
             }, 2000);
         }
 
-        // Добавляем анимацию появления секций
+        // Улучшенная анимация появления для мобильных устройств
         document.addEventListener('DOMContentLoaded', function() {
             const sections = document.querySelectorAll('.section');
+            const isMobile = window.innerWidth <= 768;
+            
             sections.forEach((section, index) => {
                 section.style.opacity = '0';
-                section.style.transform = 'translateY(20px)';
+                section.style.transform = isMobile ? 'translateY(15px)' : 'translateY(20px)';
                 
                 setTimeout(() => {
                     section.style.transition = 'all 0.6s ease';
                     section.style.opacity = '1';
                     section.style.transform = 'translateY(0)';
-                }, index * 200);
+                }, index * (isMobile ? 150 : 200));
             });
+        });
+
+        // Обработка изменения ориентации для мобильных устройств
+        window.addEventListener('orientationchange', function() {
+            setTimeout(() => {
+                window.scrollTo(0, 0);
+            }, 100);
         });
     </script>
 </body>
