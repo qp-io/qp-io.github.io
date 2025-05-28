@@ -867,54 +867,60 @@
       }
 
       async saveConfig() {
-        // 1. Сохраняем новые группы
-        for (const group of this.newGroups) {
-          const res = await this.safeFetch(`${this.API_BASE}/groups`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              name: document.getElementById(`group-${group.id}-name`).value,
-              interface: document.getElementById(`group-${group.id}-interface`).textContent.trim(),
-              enable: document.getElementById(`group-${group.id}-enable`).checked
-            })
-          });
-          // Если успешно создана, можно добавить правила (если нужно)
-          if (res && res.id) {
-            const rulesString = document.getElementById(`group-${group.id}-rules`).value;
-            await this.saveRules(res.id, rulesString);
+        if (this.saving) return;
+        this.saving = true;
+        try {
+          // 1. Сохраняем новые группы
+          for (const group of this.newGroups) {
+            const res = await this.safeFetch(`${this.API_BASE}/groups`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                name: document.getElementById(`group-${group.id}-name`).value,
+                interface: document.getElementById(`group-${group.id}-interface`).textContent.trim(),
+                enable: document.getElementById(`group-${group.id}-enable`).checked
+              })
+            });
+            // Если успешно создана, можно добавить правила (если нужно)
+            if (res && res.id) {
+              const rulesString = document.getElementById(`group-${group.id}-rules`).value;
+              await this.saveRules(res.id, rulesString);
+            }
           }
+          this.newGroups = [];
+          // 2. Удаляем группы
+          for (const groupId of this.deletedGroups) {
+            await this.safeFetch(`${this.API_BASE}/groups/${groupId}`, { method: "DELETE" });
+          }
+          this.deletedGroups.clear();
+          // 3. Сохраняем изменения в существующих группах
+          const unsavedGroups = this.groupsElement.querySelectorAll(".unsaved");
+          for (const groupElement of unsavedGroups) {
+            const groupId = groupElement.id.replace("group-", "");
+            if (groupId.startsWith('new-')) continue; // Новые уже обработаны выше
+            const enable = groupElement.querySelector(`#group-${groupId}-enable`).checked;
+            const interfaceDisplay = groupElement.querySelector(`#group-${groupId}-interface`);
+            const interfaceValue = interfaceDisplay.textContent.trim();
+            await this.safeFetch(`${this.API_BASE}/groups/${groupId}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                name: document.getElementById(`group-${groupId}-name`).value,
+                interface: interfaceValue,
+                enable: enable
+              })
+            });
+            const rulesString = document.getElementById(`group-${groupId}-rules`).value;
+            await this.saveRules(groupId, rulesString);
+            groupElement.classList.remove("unsaved");
+          }
+          await this.safeFetch(`${this.API_BASE}/system/config/save`, { method: "POST" });
+          await this.fetchGroups();
+          showNotification("Сохранено");
+          this.updateSaveButton();
+        } finally {
+          this.saving = false;
         }
-        this.newGroups = [];
-        // 2. Удаляем группы
-        for (const groupId of this.deletedGroups) {
-          await this.safeFetch(`${this.API_BASE}/groups/${groupId}`, { method: "DELETE" });
-        }
-        this.deletedGroups.clear();
-        // 3. Сохраняем изменения в существующих группах
-        const unsavedGroups = this.groupsElement.querySelectorAll(".unsaved");
-        for (const groupElement of unsavedGroups) {
-          const groupId = groupElement.id.replace("group-", "");
-          if (groupId.startsWith('new-')) continue; // Новые уже обработаны выше
-          const enable = groupElement.querySelector(`#group-${groupId}-enable`).checked;
-          const interfaceDisplay = groupElement.querySelector(`#group-${groupId}-interface`);
-          const interfaceValue = interfaceDisplay.textContent.trim();
-          await this.safeFetch(`${this.API_BASE}/groups/${groupId}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              name: document.getElementById(`group-${groupId}-name`).value,
-              interface: interfaceValue,
-              enable: enable
-            })
-          });
-          const rulesString = document.getElementById(`group-${groupId}-rules`).value;
-          await this.saveRules(groupId, rulesString);
-          groupElement.classList.remove("unsaved");
-        }
-        await this.safeFetch(`${this.API_BASE}/system/config/save`, { method: "POST" });
-        await this.fetchGroups();
-        showNotification("Сохранено");
-        this.updateSaveButton();
       }
 
       updateSaveButton() {
