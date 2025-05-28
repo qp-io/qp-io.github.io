@@ -267,7 +267,7 @@
 
       const input = document.createElement('input');
       input.type = 'text';
-      input.placeholder = 'vless://...';
+      input.placeholder = 'vless://... vmess://... trojan://... ss://... socks://... wireguard://... hysteria://... tuic://...';
 
       const deleteBtn = document.createElement('button');
       deleteBtn.className = 'trash-btn';
@@ -377,6 +377,248 @@
         outbound.transport = { type: "tcp" };
       }
 
+      return outbound;
+    }
+
+    // --- Новый универсальный парсер ---
+    function parseLink(link) {
+      if (link.startsWith('vless://')) return parseVlessLink(link);
+      if (link.startsWith('vmess://')) return parseVmessLink(link);
+      if (link.startsWith('trojan://')) return parseTrojanLink(link);
+      if (link.startsWith('ss://')) return parseShadowsocksLink(link);
+      if (link.startsWith('socks://')) return parseSocksLink(link);
+      if (link.startsWith('wg://') || link.startsWith('wireguard://')) return parseWireguardLink(link);
+      if (link.startsWith('hysteria://')) return parseHysteriaLink(link);
+      if (link.startsWith('tuic://')) return parseTuicLink(link);
+      return null;
+    }
+
+    // --- Парсер VMess ---
+    function parseVmessLink(link) {
+      // vmess://base64(json)
+      try {
+        const b64 = link.replace('vmess://', '');
+        const json = JSON.parse(atob(b64.replace(/-/g, '+').replace(/_/g, '/')));
+        const outbound = {
+          type: 'vmess',
+          tag: json.ps || `vmess-${json.add}-${json.port}`,
+          server: json.add,
+          server_port: parseInt(json.port, 10),
+          uuid: json.id,
+          alter_id: json.aid ? parseInt(json.aid, 10) : 0,
+          security: json.scy || json.security || 'auto',
+          network: json.net || 'tcp',
+          packet_encoding: json.packetEncoding || 'xudp',
+        };
+        if (json.tls === 'tls') {
+          outbound.tls = { enabled: true, server_name: json.sni || json.add };
+        }
+        if (json.net === 'ws') {
+          outbound.transport = {
+            type: 'ws',
+            path: json.path || '/',
+            headers: { Host: json.host || json.add }
+          };
+        }
+        // ... другие транспорты по необходимости ...
+        return outbound;
+      } catch (e) { return null; }
+    }
+
+    // --- Парсер Trojan ---
+    function parseTrojanLink(link) {
+      // trojan://password@host:port?params#tag
+      const match = link.match(/trojan:\/\/([^@]+)@([^:]+):(\d+)(?:\?([^#]*))?(?:#(.*))?/);
+      if (!match) return null;
+      const password = match[1];
+      const server = match[2];
+      const server_port = parseInt(match[3], 10);
+      const params = new URLSearchParams(match[4] || "");
+      const tag = decodeURIComponent(match[5] || '').trim();
+      const outbound = {
+        type: 'trojan',
+        tag: tag || `trojan-${server}-${server_port}`,
+        server,
+        server_port,
+        password,
+        packet_encoding: params.get('packetEncoding') || 'xudp',
+      };
+      if (params.get('sni')) {
+        outbound.tls = { enabled: true, server_name: params.get('sni') };
+      }
+      return outbound;
+    }
+
+    // --- Парсер Shadowsocks (ss) ---
+    function parseShadowsocksLink(link) {
+      // ss://base64(method:password)@host:port[#tag][?params] или ss://method:password@host:port или ss://base64(method:password@host:port)[?params][#tag]
+      try {
+        let url = link.replace('ss://', '');
+        let tag = '';
+        if (url.includes('#')) {
+          tag = decodeURIComponent(url.split('#')[1]);
+          url = url.split('#')[0];
+        }
+        let params = '';
+        if (url.includes('?')) {
+          params = url.split('?')[1];
+          url = url.split('?')[0];
+        }
+        let method = '', password = '', server = '', port = '';
+        if (url.includes('@')) {
+          const [userinfoB64, hostinfo] = url.split('@');
+          let userinfo = '';
+          try {
+            userinfo = atob(userinfoB64.replace(/-/g, '+').replace(/_/g, '/'));
+          } catch (e) {
+            userinfo = userinfoB64;
+          }
+          if (userinfo.includes('@')) {
+            const [userinfo2, hostinfo2] = userinfo.split('@');
+            const sep = userinfo2.indexOf(':');
+            method = userinfo2.slice(0, sep);
+            password = userinfo2.slice(sep + 1);
+            [server, port] = hostinfo2.split(':');
+          } else {
+            const sep = userinfo.indexOf(':');
+            method = userinfo.slice(0, sep);
+            password = userinfo.slice(sep + 1);
+            [server, port] = hostinfo.split(':');
+          }
+        } else {
+          let decoded = '';
+          try {
+            decoded = atob(url.replace(/-/g, '+').replace(/_/g, '/'));
+          } catch (e) {
+            decoded = url;
+          }
+          const [userinfo, hostinfo] = decoded.split('@');
+          const sep = userinfo.indexOf(':');
+          method = userinfo.slice(0, sep);
+          password = userinfo.slice(sep + 1);
+          [server, port] = hostinfo.split(':');
+        }
+        // sing-box поддерживает только AEAD-алгоритмы и ключи нужной длины
+        const allowedMethods = [
+          'aes-128-gcm', 'aes-256-gcm', 'chacha20-ietf-poly1305',
+          '2022-blake3-aes-128-gcm', '2022-blake3-aes-256-gcm', '2022-blake3-chacha20-poly1305'
+        ];
+        if (!allowedMethods.includes(method)) return null;
+        // Для 2022-* если пароль уже содержит двоеточие, используем как есть, иначе пробуем старый формат через запятую
+        if (method.startsWith('2022-')) {
+          if (!password.includes(':')) {
+            let [server_key, client_key] = password.split(',');
+            if (client_key) {
+              password = server_key + ':' + client_key;
+            } else {
+              password = server_key;
+            }
+          }
+        }
+        const outbound = {
+          type: 'shadowsocks',
+          tag: tag || `ss-${server}-${port}`,
+          method,
+          server,
+          server_port: parseInt(port, 10),
+          password
+        };
+        if (params) {
+          const urlParams = new URLSearchParams(params);
+          if (urlParams.get('plugin')) outbound.plugin = urlParams.get('plugin');
+          if (urlParams.get('type')) outbound.type = urlParams.get('type');
+        }
+        // type всегда shadowsocks
+        outbound.type = 'shadowsocks';
+        return outbound;
+      } catch (e) { return null; }
+    }
+
+    // --- Парсер SOCKS ---
+    function parseSocksLink(link) {
+      // socks://[username:password@]host:port[#tag]
+      const match = link.match(/socks:\/\/(?:([^:]+):([^@]+)@)?([^:]+):(\d+)(?:#(.*))?/);
+      if (!match) return null;
+      const username = match[1] || '';
+      const password = match[2] || '';
+      const server = match[3];
+      const server_port = parseInt(match[4], 10);
+      const tag = decodeURIComponent(match[5] || '').trim();
+      const outbound = {
+        type: 'socks',
+        tag: tag || `socks-${server}-${server_port}`,
+        server,
+        server_port,
+      };
+      if (username) outbound.username = username;
+      if (password) outbound.password = password;
+      return outbound;
+    }
+
+    // --- Парсер WireGuard ---
+    function parseWireguardLink(link) {
+      // wg://base64(json) или wireguard://base64(json)
+      try {
+        const b64 = link.replace(/^(wg|wireguard):\/\//, '');
+        const json = JSON.parse(atob(b64.replace(/-/g, '+').replace(/_/g, '/')));
+        const outbound = {
+          type: 'wireguard',
+          tag: json.tag || `wg-${json.server}-${json.server_port}`,
+          server: json.server,
+          server_port: parseInt(json.server_port, 10),
+          local_address: json.local_address,
+          private_key: json.private_key,
+          peer_public_key: json.peer_public_key,
+          pre_shared_key: json.pre_shared_key || '',
+          mtu: json.mtu ? parseInt(json.mtu, 10) : undefined,
+        };
+        return outbound;
+      } catch (e) { return null; }
+    }
+
+    // --- Парсер Hysteria ---
+    function parseHysteriaLink(link) {
+      // hysteria://password@host:port?params#tag
+      const match = link.match(/hysteria:\/\/([^@]+)@([^:]+):(\d+)(?:\?([^#]*))?(?:#(.*))?/);
+      if (!match) return null;
+      const password = match[1];
+      const server = match[2];
+      const server_port = parseInt(match[3], 10);
+      const params = new URLSearchParams(match[4] || "");
+      const tag = decodeURIComponent(match[5] || '').trim();
+      const outbound = {
+        type: 'hysteria',
+        tag: tag || `hysteria-${server}-${server_port}`,
+        server,
+        server_port,
+        password,
+      };
+      if (params.get('sni')) outbound.sni = params.get('sni');
+      if (params.get('alpn')) outbound.alpn = params.get('alpn').split(',');
+      return outbound;
+    }
+
+    // --- Парсер TUIC ---
+    function parseTuicLink(link) {
+      // tuic://uuid:password@host:port?params#tag
+      const match = link.match(/tuic:\/\/([^:]+):([^@]+)@([^:]+):(\d+)(?:\?([^#]*))?(?:#(.*))?/);
+      if (!match) return null;
+      const uuid = match[1];
+      const password = match[2];
+      const server = match[3];
+      const server_port = parseInt(match[4], 10);
+      const params = new URLSearchParams(match[5] || "");
+      const tag = decodeURIComponent(match[6] || '').trim();
+      const outbound = {
+        type: 'tuic',
+        tag: tag || `tuic-${server}-${server_port}`,
+        server,
+        server_port,
+        uuid,
+        password,
+      };
+      if (params.get('alpn')) outbound.alpn = params.get('alpn').split(',');
+      if (params.get('sni')) outbound.sni = params.get('sni');
       return outbound;
     }
 
@@ -518,8 +760,8 @@
               }
             }
           } else {
-            // Парсим новую VLESS-ссылку
-            const outbound = parseVlessLink(link);
+            // Парсим новую ссылку любого типа
+            const outbound = parseLink(link);
             if (outbound) {
               if (!usedTags.has(outbound.tag)) {
                 newOutbounds.push(outbound);
@@ -529,7 +771,7 @@
                 outboundTags.push(outbound.tag);
               }
             } else {
-              warnings.push(`⚠️ Неверный формат VLESS-ссылки: ${link}`);
+              warnings.push(`⚠️ Неверный формат ссылки: ${link}`);
             }
           }
         });
