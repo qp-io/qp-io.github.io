@@ -538,7 +538,7 @@
 
     function rulesToString(rules) {
       return rules.map(rule => {
-        if (rule.type === 'ipnet') {
+        if (rule.type === 'subnet') {
           return (rule.enable ? "" : "#") + rule.rule;
         }
         
@@ -567,7 +567,7 @@
           if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(\/\d{1,2})?$/.test(line)) {
             return { 
               rule: line, 
-              type: 'ipnet', 
+              type: 'subnet', 
               name: line,
               enable: enable
             };
