@@ -5,425 +5,294 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>qp-io</title>
   <style>
-    /* Глобальный box-sizing */
-    *, *::before, *::after {
-      box-sizing: border-box;
-    }
-
-    /* Темы и переменные */
-    body {
-      --bg-color: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      --text-color: #fff;
-      --border-color: rgba(255,255,255,0.2);
-      --card-bg: rgba(255,255,255,0.1);
-      --button-bg: linear-gradient(45deg, #ff6b6b, #ee5a24);
-      --button-text: #fff;
-      --shadow: 0 8px 32px rgba(0,0,0,0.1);
-      --glow: 0 0 20px rgba(255,107,107,0.3);
-
-      background: var(--bg-color);
-      color: var(--text-color);
-      font-family: 'Arial', sans-serif;
-      margin: 0;
-      padding: 20px;
-      min-height: 100vh;
-      transition: all 0.3s ease;
-      overflow-x: hidden;
+    :root {
+      --bg-color: #f9f9f9;
+      --text-color: #333;
+      --border-color: #ccc;
+      --card-bg: #fff;
+      --button-bg: #007BFF;
+      --button-text: #000;
+      --accent-color: #007BFF;
+      --input-border: #ccc;
+      --input-bg: #fff;
     }
 
     body.dark-theme {
-      --bg-color: linear-gradient(135deg, #0c0c0c 0%, #1a1a2e 50%, #16213e 100%);
-      --text-color: #e0e6ed;
-      --border-color: rgba(255,255,255,0.1);
-      --card-bg: rgba(255,255,255,0.05);
-      --button-bg: linear-gradient(45deg, #4834d4, #686de0);
-      --shadow: 0 8px 32px rgba(0,0,0,0.3);
-      --glow: 0 0 20px rgba(72,52,212,0.4);
+      --bg-color: #1e1e1e;
+      --text-color: #c9d1d9;
+      --border-color: #555;
+      --card-bg: #282c34;
+      --button-bg: #444;
+      --button-text: #fff;
+      --accent-color: #61afef;
+      --input-border: #555;
+      --input-bg: #21252b;
     }
 
-    /* Анимированные частицы на фоне */
-    body::before {
-      content: '';
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background-image: 
-        radial-gradient(circle at 20% 80%, rgba(255,255,255,0.1) 0%, transparent 50%),
-        radial-gradient(circle at 80% 20%, rgba(255,255,255,0.1) 0%, transparent 50%),
-        radial-gradient(circle at 40% 40%, rgba(255,255,255,0.1) 0%, transparent 50%);
-      animation: float 6s ease-in-out infinite;
-      pointer-events: none;
-      z-index: -1;
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      transition: all 0.3s ease;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
     }
 
-    @keyframes float {
-      0%, 100% { transform: translateY(0px) rotate(0deg); }
-      50% { transform: translateY(-20px) rotate(180deg); }
-    }
-
-    h1 {
+    .header {
       text-align: center;
-      margin-bottom: 40px;
-      font-size: 3rem;
-      font-weight: bold;
-      background: linear-gradient(45deg, #ff6b6b, #4ecdc4, #45b7d1, #96ceb4, #ffeaa7);
-      background-size: 400% 400%;
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-      animation: gradientShift 4s ease infinite;
-      text-shadow: 0 0 30px rgba(255,107,107,0.5);
-      position: relative;
+      margin-bottom: 30px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
     }
 
-    h1::after {
-      content: '';
-      position: absolute;
-      bottom: -10px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 100px;
-      height: 3px;
-      background: linear-gradient(45deg, #ff6b6b, #4ecdc4);
-      border-radius: 2px;
-      animation: pulse 2s ease-in-out infinite;
+    .header h1 {
+      margin: 0;
+      font-size: 2.5rem;
+      font-weight: 600;
+      color: var(--text-color);
+      letter-spacing: 1px;
     }
 
-    @keyframes gradientShift {
-      0% { background-position: 0% 50%; }
-      50% { background-position: 100% 50%; }
-      100% { background-position: 0% 50%; }
+    .subtitle {
+      margin: 0;
+      font-size: 1rem;
+      color: var(--text-color);
+      opacity: 0.7;
+      font-weight: 400;
     }
 
-    @keyframes pulse {
-      0%, 100% { transform: translateX(-50%) scaleX(1); opacity: 1; }
-      50% { transform: translateX(-50%) scaleX(1.5); opacity: 0.7; }
+    .container {
+      width: 100%;
+      max-width: 450px;
+      padding: 20px;
+      background: var(--card-bg);
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+      box-sizing: border-box;
     }
 
     .controls {
       display: flex;
       flex-direction: column;
-      gap: 20px;
-      margin-bottom: 20px;
+      gap: 10px;
+    }
+
+    .button-link {
+      text-decoration: none;
+      display: flex;
+      justify-content: center;
     }
 
     button {
-      background: var(--button-bg);
-      color: var(--button-text);
+      background-color: transparent;
+      color: var(--text-color);
       border: none;
-      border-radius: 25px;
-      padding: 18px 30px;
+      border-radius: 4px;
+      padding: 12px 16px;
       cursor: pointer;
       font-size: 16px;
-      font-weight: 600;
       width: 100%;
-      text-align: center;
-      position: relative;
-      overflow: hidden;
-      backdrop-filter: blur(10px);
-      border: 1px solid var(--border-color);
-      box-shadow: var(--shadow);
-      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      text-transform: uppercase;
-      letter-spacing: 1px;
-    }
-
-    button::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: -100%;
-      width: 100%;
-      height: 100%;
-      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
-      transition: left 0.5s;
+      max-width: 350px;
+      transition: opacity 0.3s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
     }
 
     button:hover {
-      transform: translateY(-5px) scale(1.02);
-      box-shadow: var(--glow), var(--shadow);
-      border-color: rgba(255,255,255,0.4);
+      opacity: 0.8;
     }
 
-    button:hover::before {
-      left: 100%;
+    .icon {
+      width: 20px;
+      height: 20px;
+      stroke: currentColor;
+      fill: none;
     }
 
-    button:active {
-      transform: translateY(-2px) scale(0.98);
-    }
-
-    .repo-description {
-      text-align: center;
-      font-size: 14px;
-      color: rgba(255,255,255,0.7);
-      margin-top: -8px;
-      margin-bottom: 20px;
-      animation: fadeInUp 1s ease 0.5s both;
-    }
-
-    .container {
-      max-width: 450px;
-      margin: 0 auto;
-      padding: 30px;
-      background: var(--card-bg);
-      backdrop-filter: blur(20px);
-      border-radius: 25px;
-      border: 1px solid var(--border-color);
-      box-shadow: var(--shadow);
-      animation: slideInUp 0.8s ease;
-      position: relative;
-    }
-
-    .container::before {
-      content: '';
-      position: absolute;
-      top: -2px;
-      left: -2px;
-      right: -2px;
-      bottom: -2px;
-      background: linear-gradient(45deg, #ff6b6b, #4ecdc4, #45b7d1, #96ceb4);
-      background-size: 400% 400%;
-      border-radius: 25px;
-      z-index: -1;
-      animation: gradientShift 4s ease infinite;
-      opacity: 0.5;
-    }
-
-    @keyframes slideInUp {
-      from {
-        opacity: 0;
-        transform: translateY(50px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
-    @keyframes fadeInUp {
-      from {
-        opacity: 0;
-        transform: translateY(20px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
-    a.button-link {
-      text-decoration: none;
-      display: block;
-      animation: fadeInUp 0.6s ease both;
-    }
-
-    a.button-link:nth-child(1) { animation-delay: 0.1s; }
-    a.button-link:nth-child(2) { animation-delay: 0.2s; }
-    a.button-link:nth-child(3) { animation-delay: 0.3s; }
-    a.button-link:nth-child(4) { animation-delay: 0.4s; }
-
-    #theme-toggle {
+    .theme-toolbar {
       position: fixed;
-      bottom: 30px;
-      right: 30px;
-      width: 60px;
-      height: 60px;
+      left: 50%;
+      bottom: 16px;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 16px;
+      justify-content: center;
+      margin-top: 0;
+      margin-bottom: 0;
+      z-index: 1100;
+      flex-shrink: 0;
+      background: transparent;
+    }
+
+    .toolbar-icon {
+      width: 40px;
+      height: 40px;
       border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 28px;
       background: transparent;
-      color: var(--text-color);
       border: none;
+      box-shadow: none;
+      padding: 0;
       cursor: pointer;
-      z-index: 1000;
-      transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-      filter: drop-shadow(0 4px 8px rgba(0,0,0,0.3));
+      transition: opacity 0.3s;
+      font-size: 0;
+      text-decoration: none;
     }
 
-    #theme-toggle:hover {
-      transform: rotate(15deg) scale(1.2);
-      filter: drop-shadow(0 6px 12px rgba(0,0,0,0.4));
+    .toolbar-icon svg {
+      width: 24px;
+      height: 24px;
+      stroke: currentColor;
+      fill: none;
+      display: block;
     }
 
-    /* Убираем эффект пульсации */
-    #theme-toggle::after {
-      display: none;
+    body.dark-theme .toolbar-icon {
+      color: #fff;
+    }
+    
+    body:not(.dark-theme) .toolbar-icon {
+      color: #000;
     }
 
-    @keyframes ping {
-      75%, 100% {
-        transform: scale(1.5);
-        opacity: 0;
-      }
-    }
-
-    /* Добавляем эффект свечения при загрузке */
-    @keyframes loadingGlow {
-      0%, 100% { box-shadow: 0 0 10px rgba(255,107,107,0.3); }
-      50% { box-shadow: 0 0 30px rgba(255,107,107,0.8), 0 0 50px rgba(255,107,107,0.5); }
-    }
-
-    .container.loading {
-      animation: loadingGlow 1.5s ease-in-out infinite;
-    }
-
-    /* Responsive design */
     @media (max-width: 480px) {
-      h1 {
-        font-size: 2.5rem;
+      .header h1 {
+        font-size: 2rem;
       }
-      
+    
+      .subtitle {
+        font-size: 0.9rem;
+      }
+
       .container {
-        margin: 10px;
+        margin: 0 10px;
         padding: 20px;
       }
-      
-      #theme-toggle {
-        width: 50px;
-        height: 50px;
-        bottom: 20px;
-        right: 20px;
-        font-size: 24px;
-      }
-    }
 
-    /* Добавляем курсор-звездочки */
-    body {
-      cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="2" fill="%23ff6b6b" opacity="0.8"/></svg>'), auto;
+      button {
+        font-size: 15px;
+        padding: 10px 12px;
+      }
     }
   </style>
 </head>
 <body class="dark-theme">
-  <h1>qp-io</h1>
+  <div class="header">
+    <h1>qp-io</h1>
+    <p class="subtitle">build by keenetic</p>
+  </div>
 
-  <div class="container" id="mainContainer">
+  <div class="container">
     <div class="controls">
-      <!-- Singbox Tun Config Generator -->
       <a href="/keenetic-vless-singbox-tun-config-gen" target="_blank" class="button-link">
-        <button>🛠️ Singbox Tun Config Generator</button>
+        <button>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M21 8V16C21 18.7614 18.7614 21 16 21H8C5.23858 21 3 18.7614 3 16V8C3 5.23858 5.23858 3 8 3H16C18.7614 3 21 5.23858 21 8Z" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M12 8L12 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M8 12L16 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          Singbox Tun Config Generator
+        </button>
       </a>
 
-      <!-- XRAY Config Generator -->
       <a href="/keenetic-vless-xray-config-gen" target="_blank" class="button-link">
-        <button>🛠️ XRAY Config Generator</button>
+        <button>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 3L20 7.5V16.5L12 21L4 16.5V7.5L12 3Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+            <path d="M12 21V12M12 12L20 7.5M12 12L4 7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          XRAY Config Generator
+        </button>
       </a>
 
-      <!-- MagiTrickle Editor -->
       <a href="/keenetic-magitricle-editor" target="_blank" class="button-link">
-        <button>✨ MagiTrickle Editor</button>
+        <button>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12.4167 3L21 18H3L12.4167 3Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M12.5 21V21.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          MagiTrickle Editor
+        </button>
       </a>
 
-      <!-- MagiTrickle skin -->
-      <a href="/magitricle-skin" target="_blank" class="button-link">
-        <button>🎨 MagiTrickle Skin</button>
-      </a>
-
-      <!-- qp-io github repositories -->
-      <a href="https://github.com/qp-io/qp-io.github.io" target="_blank" class="button-link">
-        <button>📚 GitHub Repositories</button>
+      <a href="/mtskin.html" target="_blank" class="button-link">
+        <button>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M15 12C15 13.6569 13.6569 15 12 15C10.3431 15 9 13.6569 9 12C9 10.3431 10.3431 9 12 9C13.6569 9 15 10.3431 15 12Z" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M12 5V3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M17 7L19 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M19 12H21" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M17 17L19 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M12 19V21" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M7 17L5 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M5 12H3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M7 7L5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          MagiTrickle Skin
+        </button>
       </a>
     </div>
   </div>
 
-  <!-- Кнопка переключения темы -->
-  <button id="theme-toggle" onclick="toggleTheme()">
-    <span id="theme-icon">☀️</span>
-  </button>
+  <div class="theme-toolbar">
+    <a href="https://github.com/qp-io/qp-io.github.io" target="_blank" rel="noopener" title="Открыть репозиторий" class="toolbar-icon">
+      <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="none">
+        <path fill="currentColor" fill-rule="evenodd" d="M8 1C4.133 1 1 4.13 1 7.993c0 3.09 2.006 5.71 4.787 6.635.35.064.478-.152.478-.337 0-.166-.006-.606-.01-1.19-1.947.423-2.357-.937-2.357-.937-.319-.808-.778-1.023-.778-1.023-.635-.434.048-.425.048-.425.703.05 1.073.72 1.073.72.624 1.07 1.638.76 2.037.582.063-.452.244-.76.444-.935-1.554-.177-3.188-.777-3.188-3.456 0-.763.273-1.388.72-1.876-.072-.177-.312-.888.07-1.85 0 0 .586-.188 1.924.716A6.711 6.711 0 018 4.381c.595.003 1.194.08 1.753.236 1.336-.904 1.923-.716 1.923-.716.382.962.142 1.673.07 1.85.448.488.72 1.113.72 1.876 0 2.686-1.638 3.278-3.197 3.45.251.216.475.643.475 1.296 0 .934-.009 1.688-.009 1.918 0 .187.127.404.482.336A6.996 6.996 0 0015 7.993 6.997 6.997 0 008 1z"/>
+      </svg>
+    </a>
+    <button id="theme-toggle" title="Переключить тему" class="toolbar-icon">
+      <!-- SVG будет подставляться динамически -->
+    </button>
+  </div>
 
   <script>
     function toggleTheme() {
-      const body = document.body;
-      const themeIcon = document.getElementById('theme-icon');
-      
-      body.classList.toggle('dark-theme');
-      
-      // Меняем иконку в зависимости от темы
-      if (body.classList.contains('dark-theme')) {
-        themeIcon.textContent = '🌙';
-      } else {
-        themeIcon.textContent = '☀️';
-      }
-      
-      // Добавляем эффект пульсации при переключении
-      const container = document.getElementById('mainContainer');
-      container.classList.add('loading');
-      setTimeout(() => {
-        container.classList.remove('loading');
-      }, 1000);
+      document.body.classList.toggle("dark-theme");
+      updateThemeToggleIcon();
     }
 
-    // Добавляем эффект появления при загрузке страницы
-    window.addEventListener('load', () => {
-      const container = document.getElementById('mainContainer');
-      const themeIcon = document.getElementById('theme-icon');
+    function updateThemeToggleIcon() {
+      const themeToggle = document.getElementById("theme-toggle");
+      if (!themeToggle) return;
       
-      // Устанавливаем правильную иконку при загрузке
-      if (document.body.classList.contains('dark-theme')) {
-        themeIcon.textContent = '🌙';
-      } else {
-        themeIcon.textContent = '☀️';
-      }
+      // SVG для светлой темы (солнце)
+      const lightSVG = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+        <path d="M12 2V4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M12 20V22" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M4 12L2 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M22 12L20 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M19.7778 4.22217L17.5558 6.44418" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M6.44415 17.5557L4.22217 19.7777" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M19.7778 19.7778L17.5558 17.5558" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M6.44415 6.44434L4.22217 4.22236" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <circle cx="12" cy="12" r="5" stroke="currentColor" stroke-width="1.5"/>
+      </svg>`;
       
-      container.classList.add('loading');
-      setTimeout(() => {
-        container.classList.remove('loading');
-      }, 2000);
-    });
-
-    // Добавляем интерактивные эффекты для кнопок
-    const buttons = document.querySelectorAll('button:not(#theme-toggle)');
-    buttons.forEach(button => {
-      button.addEventListener('mouseenter', () => {
-        button.style.filter = 'hue-rotate(20deg)';
-      });
+      // SVG для темной темы (луна)
+      const darkSVG = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+        <path d="M3.32031 11.6835C3.32031 16.6541 7.34975 20.6835 12.3203 20.6835C16.1075 20.6835 19.3483 18.3443 20.6768 15.032C19.6402 15.4486 18.5172 15.6834 17.3203 15.6834C12.3497 15.6834 8.32031 11.654 8.32031 6.68342C8.32031 5.50221 8.55031 4.36342 8.96372 3.32031C5.65837 4.65895 3.32031 7.89830 3.32031 11.6835Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>`;
       
-      button.addEventListener('mouseleave', () => {
-        button.style.filter = 'none';
-      });
-    });
-
-    // Добавляем эффект частиц при клике
-    document.addEventListener('click', (e) => {
-      createParticles(e.clientX, e.clientY);
-    });
-
-    function createParticles(x, y) {
-      for (let i = 0; i < 6; i++) {
-        const particle = document.createElement('div');
-        particle.style.position = 'fixed';
-        particle.style.left = x + 'px';
-        particle.style.top = y + 'px';
-        particle.style.width = '4px';
-        particle.style.height = '4px';
-        particle.style.backgroundColor = '#ff6b6b';
-        particle.style.borderRadius = '50%';
-        particle.style.pointerEvents = 'none';
-        particle.style.zIndex = '9999';
-        particle.style.opacity = '0.8';
-        
-        document.body.appendChild(particle);
-        
-        const angle = (Math.PI * 2 * i) / 6;
-        const velocity = 100;
-        const vx = Math.cos(angle) * velocity;
-        const vy = Math.sin(angle) * velocity;
-        
-        particle.animate([
-          { transform: 'translate(0, 0) scale(1)', opacity: 0.8 },
-          { transform: `translate(${vx}px, ${vy}px) scale(0)`, opacity: 0 }
-        ], {
-          duration: 800,
-          easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
-        }).onfinish = () => {
-          particle.remove();
-        };
-      }
+      themeToggle.innerHTML = document.body.classList.contains('dark-theme') ? darkSVG : lightSVG;
     }
+
+    // Инициализация при загрузке страницы
+    window.addEventListener("load", () => {
+      document.getElementById("theme-toggle").onclick = toggleTheme;
+      updateThemeToggleIcon();
+    });
   </script>
 </body>
 </html>
