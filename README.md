@@ -1,6 +1,6 @@
 <div align="center">
   
-# 🚀 qp-io scripts for keenetic
+# QP-IO scripts for keenetic
 
 ### 🌐 [Visit Website](https://qp-io.github.io/)
 
