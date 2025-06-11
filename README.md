@@ -2,8 +2,6 @@
   
 # 🚀 qp-io scripts for keenetic
 
-![QP-IO Banner](https://raw.githubusercontent.com/qp-io/qp-io.github.io/main/assets/banner.png)
-
 ### 🌐 [Visit Website](https://qp-io.github.io/)
 
 Collection of useful scripts and configurations for Keenetic routers
