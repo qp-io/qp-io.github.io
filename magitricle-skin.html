@@ -1,535 +1,362 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MagiTrickle skin by qp-io</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>MagiTrickle skin</title>
+  <style>
+    :root {
+      --bg-color: #f9f9f9;
+      --text-color: #333;
+      --border-color: #ccc;
+      --card-bg: #fff;
+      --button-bg: #007BFF;
+      --button-text: #000;
+      --accent-color: #007BFF;
+      --input-border: #ddd;
+      --input-bg: #f6f8fa;
+      --code-text: #24292f;
+    }
 
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 10px;
-        }
+    body.dark-theme {
+      --bg-color: #1e1e1e;
+      --text-color: #c9d1d9;
+      --border-color: #555;
+      --card-bg: #282c34;
+      --button-bg: #444;
+      --button-text: #fff;
+      --accent-color: #61afef;
+      --input-border: #555;
+      --input-bg: #21252b;
+      --code-text: #c9d1d9;
+    }
 
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            border-radius: 15px;
-            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
-            overflow: hidden;
-        }
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      transition: all 0.3s ease;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
 
-        .header {
-            background: linear-gradient(135deg, #2c3e50, #3498db);
-            color: white;
-            padding: 25px 20px;
-            text-align: center;
-            position: relative;
-            overflow: hidden;
-        }
+    .header {
+      text-align: center;
+      margin-bottom: 30px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
 
-        .header::before {
-            content: '';
-            position: absolute;
-            top: -50%;
-            left: -50%;
-            width: 200%;
-            height: 200%;
-            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
-            animation: shimmer 3s infinite;
-        }
+    .header h1 {
+      margin: 0;
+      font-size: 2.5rem;
+      font-weight: 600;
+      color: var(--text-color);
+      letter-spacing: 1px;
+    }
 
-        @keyframes shimmer {
-            0%, 100% { transform: rotate(0deg); }
-            50% { transform: rotate(180deg); }
-        }
+    .subtitle {
+      margin: 0;
+      font-size: 1rem;
+      color: var(--text-color);
+      opacity: 0.7;
+      font-weight: 400;
+    }
 
-        .header h1 {
-            font-size: clamp(1.8rem, 5vw, 2.5rem);
-            margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-            position: relative;
-            z-index: 1;
-            word-break: break-word;
-        }
+    .container {
+      width: 100%;
+      max-width: 800px;
+      padding: 20px;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+      box-sizing: border-box;
+    }
 
-        .header .subtitle {
-            font-size: clamp(1rem, 3vw, 1.2rem);
-            opacity: 0.9;
-            position: relative;
-            z-index: 1;
-        }
+    .command-section {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
 
-        .content {
-            padding: 20px;
-        }
+    .command-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
 
-        .section {
-            margin-bottom: 30px;
-            padding: 20px 15px;
-            background: rgba(248, 249, 250, 0.8);
-            border-radius: 12px;
-            border-left: 4px solid #3498db;
-            transition: all 0.3s ease;
-        }
+    .command-title {
+      color: var(--text-color);
+      font-size: 14px;
+      font-weight: 500;
+      opacity: 0.8;
+      margin: 0;
+      padding-left: 4px;
+    }
 
-        .section:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
-        }
+    .command-container {
+      position: relative;
+      border-radius: 6px;
+      background: var(--input-bg);
+      border: 1px solid var(--input-border);
+      overflow: hidden;
+    }
 
-        .section h2 {
-            color: #2c3e50;
-            margin-bottom: 20px;
-            font-size: clamp(1.2rem, 4vw, 1.5rem);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            flex-wrap: wrap;
-        }
+    .command-container:hover .copy-btn {
+      opacity: 1;
+    }
 
-        .section h2::before {
-            content: '🎨';
-            font-size: 1.2em;
-        }
+    .command {
+      width: 100%;
+      padding: 16px;
+      background: transparent;
+      color: var(--code-text);
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+      line-height: 1.4;
+      resize: none;
+      border: none;
+      outline: none;
+      margin: 0;
+    }
 
-        .method {
-            background: white;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-        }
+    .copy-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: rgba(0, 0, 0, 0.1);
+      color: #000;
+      border: none;
+      padding: 6px;
+      border-radius: 6px;
+      cursor: pointer;
+      opacity: 0;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 30px;
+      height: 30px;
+    }
 
-        .method h3 {
-            color: #e74c3c;
-            margin-bottom: 15px;
-            font-size: clamp(1.1rem, 3.5vw, 1.3rem);
-            word-break: break-word;
-        }
+    body.dark-theme .copy-btn {
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+    }
 
-        .command-container {
-            margin: 15px 0;
-        }
+    .copy-btn:hover {
+      background: rgba(0, 0, 0, 0.2);
+    }
 
-        .command-label {
-            font-weight: bold;
-            color: #34495e;
-            margin-bottom: 8px;
-            display: block;
-            font-size: clamp(0.9rem, 2.5vw, 1rem);
-        }
+    body.dark-theme .copy-btn:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
 
-        .command-box {
-            position: relative;
-            background: #2c3e50;
-            border-radius: 8px;
-            overflow: hidden;
-            margin-bottom: 10px;
-        }
+    .copy-btn svg {
+      width: 16px;
+      height: 16px;
+      stroke: currentColor;
+      fill: none;
+      opacity: 0.8;
+    }
 
-        .command {
-            background: linear-gradient(135deg, #2c3e50, #34495e);
-            color: #ecf0f1;
-            padding: 12px 60px 12px 12px;
-            font-family: 'Courier New', monospace;
-            font-size: clamp(11px, 2.5vw, 14px);
-            border: none;
-            width: 100%;
-            resize: none;
-            outline: none;
-            word-wrap: break-word;
-            white-space: pre-wrap;
-            min-height: 80px;
-            line-height: 1.4;
-        }
+    .copy-btn.copied {
+      color: #4caf50;
+      background: rgba(76, 175, 80, 0.1);
+    }
 
-        .copy-btn {
-            position: absolute;
-            top: 8px;
-            right: 8px;
-            background: #3498db;
-            color: white;
-            border: none;
-            padding: 8px 10px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: clamp(10px, 2vw, 12px);
-            transition: all 0.3s ease;
-            z-index: 10;
-            min-width: 70px;
-            text-align: center;
-        }
+    .theme-toolbar {
+      position: fixed;
+      left: 50%;
+      bottom: 16px;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 16px;
+      justify-content: center;
+      margin-top: 0;
+      margin-bottom: 0;
+      z-index: 1100;
+      flex-shrink: 0;
+      background: transparent;
+    }
 
-        .copy-btn:hover {
-            background: #2980b9;
-            transform: scale(1.05);
-        }
+    .toolbar-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      border: none;
+      box-shadow: none;
+      padding: 0;
+      cursor: pointer;
+      transition: opacity 0.3s;
+      font-size: 0;
+      text-decoration: none;
+    }
 
-        .copy-btn:active {
-            transform: scale(0.95);
-        }
+    .toolbar-icon svg {
+      width: 24px;
+      height: 24px;
+      stroke: currentColor;
+      fill: none;
+      display: block;
+    }
 
-        .copy-btn.copied {
-            background: #27ae60;
-        }
+    body.dark-theme .toolbar-icon {
+      color: #fff;
+    }
+    
+    body:not(.dark-theme) .toolbar-icon {
+      color: #000;
+    }
 
-        .warning {
-            background: linear-gradient(135deg, #f39c12, #e67e22);
-            color: white;
-            padding: 15px;
-            border-radius: 8px;
-            margin: 20px 0;
-            display: flex;
-            align-items: flex-start;
-            gap: 10px;
-            font-size: clamp(0.9rem, 2.5vw, 1rem);
-            line-height: 1.5;
-        }
+    @media (max-width: 480px) {
+      .header h1 {
+        font-size: 2rem;
+      }
+    
+      .subtitle {
+        font-size: 0.9rem;
+      }
 
-        .warning::before {
-            content: '⚠️';
-            font-size: 1.2em;
-            flex-shrink: 0;
-        }
+      .container {
+        margin: 0;
+        padding: 15px;
+      }
 
-        .info {
-            background: linear-gradient(135deg, #3498db, #2980b9);
-            color: white;
-            padding: 15px;
-            border-radius: 8px;
-            margin: 20px 0;
-            display: flex;
-            align-items: flex-start;
-            gap: 10px;
-            font-size: clamp(0.9rem, 2.5vw, 1rem);
-            line-height: 1.5;
-        }
+      .command {
+        font-size: 12px;
+        padding: 12px;
+      }
 
-        .info::before {
-            content: 'ℹ️';
-            font-size: 1.2em;
-            flex-shrink: 0;
-        }
-
-        .footer {
-            text-align: center;
-            padding: 20px;
-            background: #ecf0f1;
-            color: #7f8c8d;
-            font-size: clamp(0.8rem, 2vw, 0.9rem);
-        }
-
-        /* Мобильные устройства */
-        @media (max-width: 768px) {
-            body {
-                padding: 5px;
-                background-attachment: fixed;
-            }
-            
-            .container {
-                border-radius: 12px;
-                margin: 0;
-            }
-            
-            .header {
-                padding: 20px 15px;
-            }
-            
-            .content {
-                padding: 15px;
-            }
-            
-            .section {
-                padding: 15px 12px;
-                margin-bottom: 20px;
-            }
-            
-            .method {
-                padding: 12px;
-            }
-            
-            .command {
-                padding: 10px 55px 10px 10px;
-                min-height: 70px;
-            }
-            
-            .copy-btn {
-                top: 6px;
-                right: 6px;
-                padding: 6px 8px;
-                min-width: 60px;
-            }
-            
-            .warning, .info {
-                padding: 12px;
-                margin: 15px 0;
-                flex-direction: column;
-                text-align: left;
-            }
-            
-            .warning::before, .info::before {
-                align-self: flex-start;
-                margin-bottom: 5px;
-            }
-        }
-
-        /* Очень маленькие экраны */
-        @media (max-width: 480px) {
-            .container {
-                border-radius: 8px;
-            }
-            
-            .header {
-                padding: 15px 10px;
-            }
-            
-            .content {
-                padding: 10px;
-            }
-            
-            .section {
-                padding: 12px 8px;
-                margin-bottom: 15px;
-            }
-            
-            .method {
-                padding: 10px;
-            }
-            
-            .command {
-                padding: 8px 50px 8px 8px;
-                min-height: 60px;
-            }
-            
-            .copy-btn {
-                top: 4px;
-                right: 4px;
-                padding: 5px 6px;
-                min-width: 50px;
-                font-size: 10px;
-            }
-            
-            .section h2 {
-                gap: 6px;
-            }
-        }
-
-        /* Планшеты в горизонтальной ориентации */
-        @media (min-width: 768px) and (max-width: 1024px) {
-            .container {
-                margin: 15px auto;
-            }
-            
-            .content {
-                padding: 25px;
-            }
-            
-            .section {
-                padding: 20px;
-            }
-        }
-
-        /* Улучшение интерактивности на touch устройствах */
-        @media (hover: none) and (pointer: coarse) {
-            .copy-btn {
-                padding: 10px 12px;
-                min-width: 75px;
-            }
-            
-            .section:hover {
-                transform: none;
-            }
-            
-            .copy-btn:hover {
-                transform: none;
-                background: #3498db;
-            }
-            
-            .copy-btn:active {
-                background: #2980b9;
-                transform: scale(0.98);
-            }
-        }
-
-        /* Темная тема для устройств с поддержкой */
-        @media (prefers-color-scheme: dark) {
-            .container {
-                background: rgba(44, 62, 80, 0.95);
-            }
-            
-            .section {
-                background: rgba(52, 73, 94, 0.8);
-                color: #ecf0f1;
-            }
-            
-            .method {
-                background: rgba(44, 62, 80, 0.9);
-                color: #ecf0f1;
-            }
-            
-            .section h2 {
-                color: #3498db;
-            }
-        }
-    </style>
+      .copy-btn {
+        opacity: 1;
+      }
+    }
+  </style>
 </head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>MagiTrickle skin by qp-io</h1>
-            <div class="subtitle">Инструкция по установке кастомного скина</div>
+<body class="dark-theme">
+  <div class="header">
+    <h1>MagiTrickle skin</h1>
+    <p class="subtitle">build by qp-io</p>
+  </div>
+
+  <div class="container">
+    <div class="command-section">
+      <div class="command-group">
+        <div class="command-title">Установка</div>
+        <div class="command-container">
+          <textarea class="command" readonly onclick="showCopyButton(this)">opkg update && opkg install curl && mkdir -p /opt/usr/share/magitrickle/skins/qp && curl -L -o /opt/usr/share/magitrickle/skins/qp/index.html https://github.com/qp-io/qp-io.github.io/blob/main/mtskin/mtskin.html && sed -i 's/skin: default/skin: qp/' /opt/var/lib/magitrickle/config.yaml && /opt/etc/init.d/S99magitrickle reconfigure</textarea>
+          <button class="copy-btn" onclick="copyCommand(this)" title="Копировать">
+            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path d="M8 4v12a2 2 0 002 2h8a2 2 0 002-2V7.242a2 2 0 00-.602-1.43L16.083 2.57A2 2 0 0014.685 2H10a2 2 0 00-2 2z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M16 18v2a2 2 0 01-2 2H6a2 2 0 01-2-2V9a2 2 0 012-2h2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
         </div>
+      </div>
 
-        <div class="content">
-            <div class="info">
-                Данный скин позволяет кастомизировать интерфейс MagiTrickle. Выберите подходящий способ установки ниже.
-            </div>
-
-            <div class="section">
-                <h2>Способ 1: Замена стокового скина</h2>
-                
-                <div class="method">
-                    <h3>Установка скина вместо стокового</h3>
-                    <div class="command-container">
-                        <span class="command-label">Команда для установки:</span>
-                        <div class="command-box">
-                            <textarea class="command" readonly>opkg update && opkg install curl && [ -f /opt/usr/share/magitrickle/skins/default/index.html ] && mv /opt/usr/share/magitrickle/skins/default/index.html /opt/usr/share/magitrickle/skins/default/index_stok.html && curl -L -o /opt/usr/share/magitrickle/skins/default/index.html https://github.com/qp-io/qp-io.github.io/raw/refs/heads/main/mtskin.html</textarea>
-                            <button class="copy-btn" onclick="copyCommand(this)">Копировать</button>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="method">
-                    <h3>Восстановление стокового скина</h3>
-                    <div class="command-container">
-                        <span class="command-label">Команда для восстановления:</span>
-                        <div class="command-box">
-                            <textarea class="command" readonly>[ -f /opt/usr/share/magitrickle/skins/default/index_stok.html ] && mv /opt/usr/share/magitrickle/skins/default/index_stok.html /opt/usr/share/magitrickle/skins/default/index.html</textarea>
-                            <button class="copy-btn" onclick="copyCommand(this)">Копировать</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="section">
-                <h2>Способ 2: Установка как отдельный скин</h2>
-                
-                <div class="method">
-                    <h3>Установка отдельного скина</h3>
-                    <div class="command-container">
-                        <span class="command-label">Команда для установки:</span>
-                        <div class="command-box">
-                            <textarea class="command" readonly>opkg update && opkg install curl && mkdir -p /opt/usr/share/magitrickle/skins/qp && curl -L -o /opt/usr/share/magitrickle/skins/qp/index.html https://github.com/qp-io/qp-io.github.io/raw/refs/heads/main/mtskin.html && sed -i 's/skin: default/skin: qp/' /opt/var/lib/magitrickle/config.yaml && /opt/etc/init.d/S99magitrickle reconfigure</textarea>
-                            <button class="copy-btn" onclick="copyCommand(this)">Копировать</button>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="method">
-                    <h3>Возврат к стоковому скину</h3>
-                    <div class="command-container">
-                        <span class="command-label">Команда для возврата:</span>
-                        <div class="command-box">
-                            <textarea class="command" readonly>sed -i 's/skin: qp/skin: default/' /opt/var/lib/magitrickle/config.yaml && /opt/etc/init.d/S99magitrickle reconfigure && rm -rf /opt/usr/share/magitrickle/skins/qp</textarea>
-                            <button class="copy-btn" onclick="copyCommand(this)">Копировать</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="warning">
-                Рекомендуется использовать второй способ (отдельный скин), так как он позволяет легко переключаться между скинами без потери оригинального.
-            </div>
+      <div class="command-group">
+        <div class="command-title">Удаление</div>
+        <div class="command-container">
+          <textarea class="command" readonly onclick="showCopyButton(this)">sed -i 's/skin: qp/skin: default/' /opt/var/lib/magitrickle/config.yaml && /opt/etc/init.d/S99magitrickle reconfigure && rm -rf /opt/usr/share/magitrickle/skins/qp</textarea>
+          <button class="copy-btn" onclick="copyCommand(this)" title="Копировать">
+            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path d="M8 4v12a2 2 0 002 2h8a2 2 0 002-2V7.242a2 2 0 00-.602-1.43L16.083 2.57A2 2 0 0014.685 2H10a2 2 0 00-2 2z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M16 18v2a2 2 0 01-2 2H6a2 2 0 01-2-2V9a2 2 0 012-2h2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
         </div>
-
-        <div class="footer">
-            Создано qp-io | MagiTrickle Custom Skin
-        </div>
+      </div>
     </div>
+  </div>
 
-    <script>
-        function copyCommand(button) {
-            const commandBox = button.parentElement;
-            const command = commandBox.querySelector('.command');
-            
-            // Для мобильных устройств используем более надежный способ
-            if (navigator.clipboard && window.isSecureContext) {
-                navigator.clipboard.writeText(command.value).then(() => {
-                    showCopySuccess(button);
-                }).catch(() => {
-                    fallbackCopyTextToClipboard(command.value, button);
-                });
-            } else {
-                fallbackCopyTextToClipboard(command.value, button);
-            }
-        }
+  <div class="theme-toolbar">
+    <a href="https://github.com/qp-io/qp-io.github.io" target="_blank" rel="noopener" title="Открыть репозиторий" class="toolbar-icon">
+      <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="none">
+        <path fill="currentColor" fill-rule="evenodd" d="M8 1C4.133 1 1 4.13 1 7.993c0 3.09 2.006 5.71 4.787 6.635.35.064.478-.152.478-.337 0-.166-.006-.606-.01-1.19-1.947.423-2.357-.937-2.357-.937-.319-.808-.778-1.023-.778-1.023-.635-.434.048-.425.048-.425.703.05 1.073.72 1.073.72.624 1.07 1.638.76 2.037.582.063-.452.244-.76.444-.935-1.554-.177-3.188-.777-3.188-3.456 0-.763.273-1.388.72-1.876-.072-.177-.312-.888.07-1.85 0 0 .586-.188 1.924.716A6.711 6.711 0 018 4.381c.595.003 1.194.08 1.753.236 1.336-.904 1.923-.716 1.923-.716.382.962.142 1.673.07 1.85.448.488.72 1.113.72 1.876 0 2.686-1.638 3.278-3.197 3.45.251.216.475.643.475 1.296 0 .934-.009 1.688-.009 1.918 0 .187.127.404.482.336A6.996 6.996 0 0015 7.993 6.997 6.997 0 008 1z"/>
+      </svg>
+    </a>
+    <button id="theme-toggle" title="Переключить тему" class="toolbar-icon">
+      <!-- SVG будет подставляться динамически -->
+    </button>
+  </div>
 
-        function fallbackCopyTextToClipboard(text, button) {
-            const textArea = document.createElement("textarea");
-            textArea.value = text;
-            textArea.style.position = "fixed";
-            textArea.style.left = "-999999px";
-            textArea.style.top = "-999999px";
-            document.body.appendChild(textArea);
-            textArea.focus();
-            textArea.select();
-            
-            try {
-                document.execCommand('copy');
-                showCopySuccess(button);
-            } catch (err) {
-                console.error('Fallback: Oops, unable to copy', err);
-            }
-            
-            document.body.removeChild(textArea);
-        }
+  <script>
+    function showCopyButton(textarea) {
+      const btn = textarea.nextElementSibling;
+      if (!btn.classList.contains('showing')) {
+        btn.style.opacity = '1';
+        btn.classList.add('showing');
+        setTimeout(() => {
+          btn.style.opacity = '';
+          btn.classList.remove('showing');
+        }, 2000);
+      }
+    }
 
-        function showCopySuccess(button) {
-            const originalText = button.textContent;
-            button.textContent = 'Скопировано!';
-            button.classList.add('copied');
-            
-            setTimeout(() => {
-                button.textContent = originalText;
-                button.classList.remove('copied');
-            }, 2000);
-        }
+    function copyCommand(button) {
+      const commandBox = button.parentElement;
+      const command = commandBox.querySelector('.command');
+      
+      navigator.clipboard.writeText(command.value).then(() => {
+        button.classList.add('copied');
+        button.innerHTML = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path d="M20 6L9 17L4 12" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>`;
+        
+        setTimeout(() => {
+          button.classList.remove('copied');
+          button.innerHTML = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M8 4v12a2 2 0 002 2h8a2 2 0 002-2V7.242a2 2 0 00-.602-1.43L16.083 2.57A2 2 0 0014.685 2H10a2 2 0 00-2 2z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M16 18v2a2 2 0 01-2 2H6a2 2 0 01-2-2V9a2 2 0 012-2h2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>`;
+        }, 2000);
+      });
+    }
 
-        // Улучшенная анимация появления для мобильных устройств
-        document.addEventListener('DOMContentLoaded', function() {
-            const sections = document.querySelectorAll('.section');
-            const isMobile = window.innerWidth <= 768;
-            
-            sections.forEach((section, index) => {
-                section.style.opacity = '0';
-                section.style.transform = isMobile ? 'translateY(15px)' : 'translateY(20px)';
-                
-                setTimeout(() => {
-                    section.style.transition = 'all 0.6s ease';
-                    section.style.opacity = '1';
-                    section.style.transform = 'translateY(0)';
-                }, index * (isMobile ? 150 : 200));
-            });
-        });
+    function toggleTheme() {
+      document.body.classList.toggle("dark-theme");
+      updateThemeToggleIcon();
+    }
 
-        // Обработка изменения ориентации для мобильных устройств
-        window.addEventListener('orientationchange', function() {
-            setTimeout(() => {
-                window.scrollTo(0, 0);
-            }, 100);
-        });
-    </script>
+    function updateThemeToggleIcon() {
+      const themeToggle = document.getElementById("theme-toggle");
+      if (!themeToggle) return;
+      
+      const lightSVG = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+        <path d="M12 2V4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M12 20V22" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M4 12L2 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M22 12L20 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M19.7778 4.22217L17.5558 6.44418" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M6.44415 17.5557L4.22217 19.7777" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M19.7778 19.7778L17.5558 17.5558" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M6.44415 6.44434L4.22217 4.22236" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <circle cx="12" cy="12" r="5" stroke="currentColor" stroke-width="1.5"/>
+      </svg>`;
+      
+      const darkSVG = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+        <path d="M3.32031 11.6835C3.32031 16.6541 7.34975 20.6835 12.3203 20.6835C16.1075 20.6835 19.3483 18.3443 20.6768 15.032C19.6402 15.4486 18.5172 15.6834 17.3203 15.6834C12.3497 15.6834 8.32031 11.654 8.32031 6.68342C8.32031 5.50221 8.55031 4.36342 8.96372 3.32031C5.65837 4.65895 3.32031 7.89830 3.32031 11.6835Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>`;
+      
+      themeToggle.innerHTML = document.body.classList.contains('dark-theme') ? darkSVG : lightSVG;
+    }
+
+    window.addEventListener("load", () => {
+      document.getElementById("theme-toggle").onclick = toggleTheme;
+      updateThemeToggleIcon();
+    });
+  </script>
 </body>
 </html>
