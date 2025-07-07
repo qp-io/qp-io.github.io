@@ -284,7 +284,7 @@
 
     // Парсинг VLESS-ссылки для Xray
     function parseVlessLinkForXray(link) {
-      const match = link.match(/vless:\/\/([^@]+)@([^:]+):(\d+)(?:\?([^#]*))?(?:#(.*))?/);
+      const match = link.match(/vless:\/\/([^@]+)@([^:]+):(\d+)\/?(?:\?([^#]*))?(?:#(.*))?/);
       if (!match) return null;
 
       const uuid = match[1];
