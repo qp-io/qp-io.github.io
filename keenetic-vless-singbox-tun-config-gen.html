@@ -285,7 +285,7 @@
 
     // Функция для парсинга VLESS-ссылки
     function parseVlessLink(link) {
-      const match = link.match(/vless:\/\/([^@]+)@([^:]+):(\d+)(?:\?([^#]*))?(?:#(.*))?/);
+      const match = link.match(/vless:\/\/([^@]+)@([^:]+):(\d+)\/?(?:\?([^#]*))?(?:#(.*))?/);
       if (!match) return null;
 
       const uuid = match[1];
