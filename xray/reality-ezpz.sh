@@ -714,7 +714,6 @@ function install_docker {
 
 function generate_docker_compose {
   cat >"${path[compose]}" <<EOF
-version: "3"
 networks:
   reality:
     driver: bridge
@@ -789,7 +788,6 @@ EOF
 
 function generate_tgbot_compose {
   cat >"${path[tgbot_compose]}" <<EOF
-version: "3"
 networks:
   tgbot:
     driver: bridge
