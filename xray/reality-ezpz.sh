@@ -26,7 +26,7 @@ image[sing-box]="gzxhwq/sing-box:latest"
 image[nginx]="nginx:1.24.0"
 image[certbot]="certbot/certbot:v2.6.0"
 image[haproxy]="haproxy:2.8.0"
-image[python]="python:3.11-alpine"
+image[python]="python:3.12-alpine"
 image[wgcf]="virb3/wgcf:2.2.18"
 
 defaults[transport]=tcp
@@ -953,7 +953,7 @@ function generate_tgbot_dockerfile {
 FROM ${image[python]}
 WORKDIR ${config_path}/tgbot
 RUN apk add --no-cache docker-cli-compose curl bash newt libqrencode-tools sudo openssl jq zip unzip
-RUN pip install --no-cache-dir python-telegram-bot==13.5 qrcode[pil]==7.4.2
+RUN pip install --no-cache-dir python-telegram-bot==22.3 qrcode[pil]==7.4.3
 CMD [ "python", "./tgbot.py" ]
 EOF
 }
