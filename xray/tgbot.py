@@ -1,225 +1,245 @@
+#!/usr/bin/env python3
 import os
 import re
-import subprocess
 import io
+import subprocess
+import logging
+from typing import Optional
+
 import qrcode
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    CallbackQueryHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+)
 
-# Определение состояний для ConversationHandler
-USERNAME, CONFIRM_DELETE = range(2)
+# Logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-token = os.environ['BOT_TOKEN']
-admin = os.environ['BOT_ADMIN']
-username_regex = re.compile("^[a-zA-Z0-9]+$")
+# Config from env
+TOKEN = os.environ.get('BOT_TOKEN')
+if not TOKEN:
+    logger.error("BOT_TOKEN env is not set")
+    raise SystemExit("BOT_TOKEN env is not set")
+
+ADMIN = os.environ.get('BOT_ADMIN', '')  # comma separated list of usernames OR numeric ids
+username_regex = re.compile(r"^[a-zA-Z0-9]+$")
+
+# The reality-ezpz installer command used by the bot
 command = 'bash <(curl -sL https://raw.githubusercontent.com/qp-io/qp-io.github.io/refs/heads/main/xray/reality-ezpz.sh) '
 
-def run_command(cmd):
+# Helpers
+def run_command(cmd: str) -> str:
     try:
-        return subprocess.check_output(cmd, shell=True, text=True)
-    except subprocess.CalledProcessError as e:
-        return f"Error: {e}"
+        process = subprocess.Popen(['/bin/bash', '-c', cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        output, err = process.communicate(timeout=120)
+        if process.returncode != 0:
+            logger.warning("Command exited %s: %s", process.returncode, err.decode().strip())
+        return output.decode()
+    except Exception as e:
+        logger.exception("run_command failed: %s", e)
+        return ""
 
 def get_users_ezpz():
-    local_command = command + '--list-users'
-    result = run_command(local_command)
-    return [user for user in result.split('\n') if user.strip()]
+    out = run_command(command + '--list-users')
+    return [line for line in out.splitlines() if line.strip()]
 
-def get_config_ezpz(username):
-    local_command = command + f'--show-config {username}'
-    return run_command(local_command)
+def get_config_ezpz(username: str):
+    local_command = command + f"--show-user {username} | grep -E '://|^\\{{\"dns\"'"
+    out = run_command(local_command)
+    return [line for line in out.splitlines() if line.strip()]
 
-def add_user_ezpz(username):
-    local_command = command + f'--add-user {username}'
-    return run_command(local_command)
+def delete_user_ezpz(username: str):
+    run_command(command + f'--delete-user {username}')
 
-def delete_user_ezpz(username):
-    local_command = command + f'--delete-user {username}'
-    return run_command(local_command)
+def add_user_ezpz(username: str):
+    run_command(command + f'--add-user {username}')
 
+# Access control decorator
 def restricted(func):
-    async def wrapped(update, context, *args, **kwargs):
-        username = None
-        if update.message:
-            username = update.message.from_user.username
-        elif update.callback_query and update.callback_query.message:
-            username = update.callback_query.from_user.username
-        
-        if not username:
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id, 
-                text='Cannot identify your username. Please set a public username in Telegram settings.'
-            )
-            return
-        
-        admin_list = admin.split(',')
-        if username in admin_list:
+    async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+        username: Optional[str] = None
+        user_id: Optional[int] = None
+
+        if update.effective_user:
+            username = update.effective_user.username
+            user_id = update.effective_user.id
+
+        # build admin list (strip spaces)
+        raw_admins = [a.strip() for a in ADMIN.split(',') if a.strip()]
+        # check username or numeric id
+        admin_ok = False
+        if username and username in raw_admins:
+            admin_ok = True
+        if user_id and str(user_id) in raw_admins:
+            admin_ok = True
+
+        if admin_ok:
             return await func(update, context, *args, **kwargs)
         else:
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id, 
-                text='You are not authorized to use this bot.'
-            )
+            chat_id = update.effective_chat.id if update.effective_chat else None
+            if chat_id:
+                await context.bot.send_message(chat_id=chat_id, text='You are not authorized to use this bot.')
+            logger.warning("Unauthorized access attempt: username=%s id=%s", username, user_id)
     return wrapped
 
+# Handlers
 @restricted
-async def start(update, context):
-    commands_text = "Reality-EZPZ User Management Bot\nChoose an option:"
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
     keyboard = [
+        [InlineKeyboardButton('Show User', callback_data='show_user')],
         [InlineKeyboardButton('Add User', callback_data='add_user')],
         [InlineKeyboardButton('Delete User', callback_data='delete_user')],
-        [InlineKeyboardButton('View Users', callback_data='show_user')],
-        [InlineKeyboardButton('View Server Config', callback_data='server_config')]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
     await context.bot.send_message(
-        chat_id=update.effective_chat.id, 
-        text=commands_text, 
-        reply_markup=reply_markup
+        chat_id=chat_id,
+        text="Reality-EZPZ User Management Bot\n\nChoose an option:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 @restricted
-async def users_list(update, context, message, action):
+async def users_list(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, callback: str):
+    chat_id = update.effective_chat.id
     users = get_users_ezpz()
-    keyboard = []
-    for user in users:
-        keyboard.append([InlineKeyboardButton(user, callback_data=f'{action}!{user}')])
+    keyboard = [[InlineKeyboardButton(user, callback_data=f'{callback}!{user}')] for user in users]
     keyboard.append([InlineKeyboardButton('Back', callback_data='start')])
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id, 
-        text=message, 
-        reply_markup=reply_markup
-    )
+    await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 @restricted
-async def show_user(update, context, username):
-    keyboard = [[InlineKeyboardButton('Back', callback_data='show_user')]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id, 
-        text=f'Config for "{username}":', 
-        parse_mode='HTML'
-    )
+async def show_user(update: Update, context: ContextTypes.DEFAULT_TYPE, username: str):
+    chat_id = update.effective_chat.id
+    back_markup = InlineKeyboardMarkup([[InlineKeyboardButton('Back', callback_data='show_user')]])
+    await context.bot.send_message(chat_id=chat_id, text=f'Config for "{username}":', parse_mode='HTML')
     config_list = get_config_ezpz(username)
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id, 
-        text=f'<pre>{config_list}</pre>', 
-        parse_mode='HTML',
-        reply_markup=reply_markup
-    )
+    ipv6_pattern = r'"server":"[0-9a-fA-F:]+"'
 
-@restricted
-async def add_user(update, context):
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id, 
-        text='Enter username:'
-    )
-    context.user_data['expected_input'] = 'username'
-    return USERNAME
-
-@restricted
-async def user_input(update, context):
-    if 'expected_input' not in context.user_
+    if not config_list:
+        await context.bot.send_message(chat_id=chat_id, text="No config found for this user.", reply_markup=back_markup)
         return
-    
-    expected_input = context.user_data['expected_input']
-    del context.user_data['expected_input']
-    
-    if expected_input == 'username':
-        username = update.message.text
-        if username in get_users_ezpz():
-            await update.message.reply_text(f'User "{username}" exists, try another username.')
-            await add_user(update, context)
-            return
-        if not username_regex.match(username):
-            await update.message.reply_text('Username can only contain A-Z, a-z and 0-9, try another username.')
-            await add_user(update, context)
-            return
-        add_user_ezpz(username)
-        await update.message.reply_text(f'User "{username}" is created.')
-        await show_user(update, context, username)
-    
-    return ConversationHandler.END
+
+    for config in config_list:
+        config = config.strip()
+        if not config:
+            continue
+
+        if config.endswith("-ipv6") or re.search(ipv6_pattern, config):
+            config_text = f"IPv6 Config:\n<pre>{config}</pre>"
+        else:
+            config_text = f"<pre>{config}</pre>"
+
+        qr_img = qrcode.make(config)
+        bio = io.BytesIO()
+        qr_img.save(bio, 'PNG')
+        bio.seek(0)
+
+        await context.bot.send_photo(chat_id=chat_id, photo=bio, caption=config_text, parse_mode='HTML', reply_markup=back_markup)
 
 @restricted
-async def button(update, context):
-    query = update.callback_query
-    await query.answer()
-    
-    response = query.data.split('!')
-    
-    if response[0] == 'start':
-        await start(update, context)
-    elif response[0] == 'show_user':
-        if len(response) > 1:
-            await show_user(update, context, response[1])
-        else:
-            await users_list(update, context, 'Select user to view:', 'show_user')
-    elif response[0] == 'delete_user':
-        if len(response) > 1:
-            context.user_data['user_to_delete'] = response[1]
-            keyboard = [
-                [InlineKeyboardButton('Yes', callback_data='approve_delete!'+response[1])],
-                [InlineKeyboardButton('No', callback_data='delete_user')]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=f'Are you sure you want to delete user "{response[1]}"?',
-                reply_markup=reply_markup
-            )
-        else:
-            await users_list(update, context, 'Select user to delete:', 'delete_user')
-    elif response[0] == 'add_user':
-        await add_user(update, context)
-    elif response[0] == 'approve_delete' and len(response) > 1:
-        delete_user_ezpz(response[1])
+async def delete_user(update: Update, context: ContextTypes.DEFAULT_TYPE, username: str):
+    chat_id = update.effective_chat.id
+    users = get_users_ezpz()
+    if len(users) <= 1:
         await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=f'User "{response[1]}" has been deleted.'
+            chat_id=chat_id,
+            text='You cannot delete the only user.\nAt least one user is needed.\nCreate a new user, then delete this one.',
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('Back', callback_data='start')]])
         )
-        await start(update, context)
-    elif response[0] == 'server_config':
-        local_command = command + '--show-server-config'
-        config = run_command(local_command)
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=f'<pre>{config}</pre>',
-            parse_mode='HTML'
-        )
-        await start(update, context)
-    else:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=f'Button pressed: {response[0]}'
-        )
+        return
+    keyboard = [
+        [InlineKeyboardButton('Delete', callback_data=f'approve_delete!{username}')],
+        [InlineKeyboardButton('Cancel', callback_data='delete_user')]
+    ]
+    await context.bot.send_message(chat_id=chat_id, text=f'Are you sure to delete "{username}"?', reply_markup=InlineKeyboardMarkup(keyboard))
 
-async def cancel(update, context):
-    context.user_data.clear()
+@restricted
+async def add_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    context.user_data['expected_input'] = 'username'
+    keyboard = [[InlineKeyboardButton('Cancel', callback_data='cancel')]]
+    await context.bot.send_message(chat_id=chat_id, text='Enter the username:', reply_markup=InlineKeyboardMarkup(keyboard))
+
+@restricted
+async def approve_delete(update: Update, context: ContextTypes.DEFAULT_TYPE, username: str):
+    delete_user_ezpz(username)
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=f'User {username} has been deleted.')
+
+@restricted
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.pop('expected_input', None)
     await start(update, context)
-    return ConversationHandler.END
 
+@restricted
+async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query:
+        await query.answer()
+        response = query.data.split('!')
+        # single actions
+        if len(response) == 1:
+            cmd = response[0]
+            if cmd == 'start':
+                await start(update, context)
+            elif cmd == 'cancel':
+                await cancel(update, context)
+            elif cmd == 'show_user':
+                await users_list(update, context, 'Select user to view config:', 'show_user')
+            elif cmd == 'delete_user':
+                await users_list(update, context, 'Select user to delete:', 'delete_user')
+            elif cmd == 'add_user':
+                await add_user(update, context)
+            else:
+                await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Button pressed: {cmd}')
+        # actions with parameter
+        else:
+            action, param = response[0], response[1]
+            if action == 'show_user':
+                await show_user(update, context, param)
+            elif action == 'delete_user':
+                await delete_user(update, context, param)
+            elif action == 'approve_delete':
+                await approve_delete(update, context, param)
+
+@restricted
+async def user_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if 'expected_input' in context.user_data:
+        expected = context.user_data.pop('expected_input', None)
+        if expected == 'username':
+            username = (update.message.text or '').strip()
+            if not username:
+                await context.bot.send_message(chat_id=update.effective_chat.id, text='Empty username, try again.')
+                await add_user(update, context)
+                return
+
+            if username in get_users_ezpz():
+                await context.bot.send_message(chat_id=update.effective_chat.id, text=f'User "{username}" exists, try another username.')
+                await add_user(update, context)
+                return
+
+            if not username_regex.match(username):
+                await context.bot.send_message(chat_id=update.effective_chat.id, text='Username can only contain A-Z, a-z and 0-9.')
+                await add_user(update, context)
+                return
+
+            add_user_ezpz(username)
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=f'User "{username}" is created.')
+            await show_user(update, context, username)
+
+# Main
 def main():
-    application = Application.builder().token(token).build()
-    
-    # Регистрация обработчиков
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(button))
-    
-    # Обработчик для добавления пользователя (с использованием ConversationHandler)
-    conv_handler = ConversationHandler(
-        entry_points=[CallbackQueryHandler(add_user, pattern='^add_user$')],
-        states={
-            USERNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, user_input)],
-        },
-        fallbacks=[CommandHandler('cancel', cancel)]
-    )
-    
-    application.add_handler(conv_handler)
-    
-    # Запуск бота
-    application.run_polling()
+    app = ApplicationBuilder().token(TOKEN).build()
+
+    app.add_handler(CommandHandler('start', start))
+    app.add_handler(CallbackQueryHandler(button))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, user_input))
+
+    logger.info("Starting bot")
+    app.run_polling()
 
 if __name__ == '__main__':
     main()
