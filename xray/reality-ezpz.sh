@@ -41,7 +41,7 @@ defaults[warp_id]=""
 defaults[warp_client_id]=""
 defaults[warp_interface_ipv4]=""
 defaults[warp_interface_ipv6]=""
-defaults[core]=xray
+defaults[core]=sing-box
 defaults[security]=reality
 defaults[server]=$(curl -fsSL --ipv4 https://cloudflare.com/cdn-cgi/trace | grep ip | cut -d '=' -f2)
 defaults[tgbot]=OFF
