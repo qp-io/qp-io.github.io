@@ -27,7 +27,7 @@ image[nginx]="nginx:1.24.0"
 image[certbot]="certbot/certbot:v2.6.0"
 image[haproxy]="haproxy:2.8.0"
 image[python]="python:3.12-alpine"
-image[wgcf]="virb3/wgcf:2.2.18"
+image[wgcf]="virb3/wgcf:latest"
 
 defaults[transport]=tcp
 defaults[domain]=yahoo.com
