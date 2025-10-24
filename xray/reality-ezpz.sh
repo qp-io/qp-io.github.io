@@ -25,7 +25,7 @@ image[xray]="teddysun/xray:latest"
 image[sing-box]="gzxhwq/sing-box:latest"
 image[nginx]="nginx:latest"
 image[certbot]="certbot/certbot:latest"
-image[haproxy]="haproxy:2.8.0"
+image[haproxy]="haproxy:latest"
 image[python]="python:3.12-alpine"
 image[wgcf]="virb3/wgcf:latest"
 
