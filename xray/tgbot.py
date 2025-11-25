@@ -22,12 +22,12 @@ from telegram.ext import (
 
 # --- Конфигурация Путей ---
 
-# Основная папка скрипта reality-ezpz
+# Папка, где установлен скрипт
 SCRIPT_DIR = '/opt/reality-ezpz'
-# Файл, где скрипт хранит свои настройки (переменные bash)
-SCRIPT_CONFIG_FILE = os.path.join(SCRIPT_DIR, 'config')
-# Сам исполняемый файл скрипта
+# Путь к исполняемому файлу скрипта
 SCRIPT_EXEC = os.path.join(SCRIPT_DIR, 'reality-ezpz.sh')
+# Файл с текущими переменными (только для чтения, чтобы показывать в меню)
+SCRIPT_CONFIG_FILE = os.path.join(SCRIPT_DIR, 'config')
 
 # Logging
 logging.basicConfig(level=logging.INFO)
@@ -42,30 +42,30 @@ if not TOKEN:
 ADMIN = os.environ.get('BOT_ADMIN', '')
 username_regex = re.compile(r"^[a-zA-Z0-9]+$")
 
-# Команда-обертка для управления пользователями (используем установленный скрипт)
-# Если скрипт установлен в /opt, вызываем его напрямую.
-if os.path.exists(SCRIPT_EXEC):
-    base_command = f"bash {SCRIPT_EXEC} "
-else:
-    # Fallback на curl если локальный файл не найден (хотя для настроек он нужен)
-    base_command = 'bash <(curl -sL https://raw.githubusercontent.com/qp-io/qp-io.github.io/refs/heads/main/xray/reality-ezpz.sh) '
+# Команда запуска скрипта. 
+# Используем sudo, если бот запущен не от root, но обычно в контейнере это root.
+# Важно: Скрипт reality-ezpz должен быть исполняемым (chmod +x).
+BASE_CMD = f"bash {SCRIPT_EXEC} "
 
-# --- Хелперы для работы с bash-конфигом скрипта ---
+# --- Хелперы ---
 
-def run_command(cmd: str) -> str:
+def run_shell(cmd: str, timeout: int = 300) -> str:
+    """Запускает команду в оболочке и возвращает вывод."""
     try:
-        # Запускаем bash command
+        logger.info(f"Executing: {cmd}")
         process = subprocess.Popen(['/bin/bash', '-c', cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        output, err = process.communicate(timeout=180) # Увеличили таймаут для пересборки
+        output, err = process.communicate(timeout=timeout)
         if process.returncode != 0:
-            logger.warning("Command exited %s: %s", process.returncode, err.decode().strip())
+            err_msg = err.decode().strip()
+            logger.warning(f"Command exited {process.returncode}: {err_msg}")
+            return f"Error: {err_msg}"
         return output.decode()
     except Exception as e:
-        logger.exception("run_command failed: %s", e)
-        return ""
+        logger.exception(f"run_shell failed: {e}")
+        return str(e)
 
-def read_script_config() -> Dict[str, str]:
-    """Читает переменные из файла config скрипта reality-ezpz."""
+def read_current_config() -> Dict[str, str]:
+    """Читает файл config для отображения текущих настроек в меню бота."""
     config = {}
     if not os.path.exists(SCRIPT_CONFIG_FILE):
         return config
@@ -74,88 +74,40 @@ def read_script_config() -> Dict[str, str]:
         with open(SCRIPT_CONFIG_FILE, 'r', encoding='utf-8') as f:
             for line in f:
                 line = line.strip()
-                # Ищем строки вида KEY="VALUE" или KEY=VALUE
                 if '=' in line and not line.startswith('#'):
-                    parts = line.split('=', 1)
-                    key = parts[0].strip()
-                    val = parts[1].strip().strip('"').strip("'")
-                    config[key] = val
+                    key, val = line.split('=', 1)
+                    config[key.strip()] = val.strip().strip('"').strip("'")
     except Exception as e:
         logger.error(f"Error reading script config: {e}")
     return config
 
-def update_script_config(key: str, value: str) -> bool:
-    """Обновляет одну настройку в файле config, используя sed для сохранения структуры."""
-    if not os.path.exists(SCRIPT_CONFIG_FILE):
-        return False
-    
-    # Экранируем слеши для sed
-    safe_value = value.replace('/', '\\/')
-    
-    # Проверяем, существует ли ключ
-    grep_cmd = f"grep -q '^{key}=' {SCRIPT_CONFIG_FILE}"
-    exists = subprocess.call(['/bin/bash', '-c', grep_cmd]) == 0
-    
-    if exists:
-        # Заменяем существующее значение
-        sed_cmd = f"sed -i 's/^{key}=.*/{key}=\"{safe_value}\"/' {SCRIPT_CONFIG_FILE}"
-    else:
-        # Добавляем новое, если не нашли (хотя лучше менять только существующие)
-        sed_cmd = f"echo '{key}=\"{value}\"' >> {SCRIPT_CONFIG_FILE}"
-        
-    return subprocess.call(['/bin/bash', '-c', sed_cmd]) == 0
+# --- Функции взаимодействия со скриптом ---
 
-def apply_configuration():
-    """
-    Запускает скрипт reality-ezpz для применения настроек.
-    Обычно запуск скрипта без аргументов (или с флагами установки) 
-    считывает config и пересобирает контейнеры/сервисы.
-    """
-    # Запускаем скрипт. В большинстве версий просто запуск применяет конфиг.
-    # Добавляем --unattended или просто запускаем, надеясь что он не спросит меню, 
-    # если конфиг уже есть.
-    # Если скрипт всегда вызывает меню без аргументов, нам нужно найти аргумент "reinstall" или "update".
-    # Часто повторный запуск скрипта установки работает как "Update".
-    
-    # Пробуем запустить без аргументов (стандартное поведение "Apply" для многих скриптов при наличии конфига)
-    # Если скрипт интерактивный, это может зависнуть. Но у нас нет выбора без CLI флагов.
-    # Надеемся, что author скрипта предусмотрел неинтерактивный режим при наличии конфига.
-    run_command(f"bash {SCRIPT_EXEC} --default > /dev/null 2>&1 &") 
-    # Используем nohup/background, чтобы бот не ждал вечность, если там меню.
-    # Но лучше, если есть флаг. Попробуем перезагрузить docker compose, если это docker версия.
-    
-    if os.path.exists(os.path.join(SCRIPT_DIR, "docker-compose.yml")):
-        run_command(f"cd {SCRIPT_DIR} && docker compose up -d")
-    else:
-        # Systemd версия
-        run_command("systemctl restart xray")
+def get_users_list():
+    out = run_shell(BASE_CMD + '--list-users')
+    # Фильтруем вывод, оставляем только имена пользователей
+    return [line.strip() for line in out.splitlines() if line.strip() and "Using config" not in line]
 
-# --- Остальные функции ---
-
-def get_users_ezpz():
-    out = run_command(base_command + '--list-users')
+def get_user_config(username: str):
+    # grep используется для вычленения ссылок и JSON конфигов из вывода скрипта
+    cmd = BASE_CMD + f"--show-user {username} | grep -E '://|^\\{{\"dns\"'"
+    out = run_shell(cmd)
     return [line for line in out.splitlines() if line.strip()]
 
-def get_config_ezpz(username: str):
-    local_command = base_command + f"--show-user {username} | grep -E '://|^\\{{\"dns\"'"
-    out = run_command(local_command)
-    return [line for line in out.splitlines() if line.strip()]
+def delete_user_cmd(username: str):
+    run_shell(BASE_CMD + f'--delete-user {username}')
 
-def delete_user_ezpz(username: str):
-    run_command(base_command + f'--delete-user {username}')
+def add_user_cmd(username: str):
+    run_shell(BASE_CMD + f'--add-user {username}')
 
-def add_user_ezpz(username: str):
-    run_command(base_command + f'--add-user {username}')
-
-def create_backup() -> str:
-    """Бэкап файлов config и users из папки скрипта"""
+def create_backup_zip() -> str:
+    """Архивирует файлы config и users."""
     if not os.path.exists(SCRIPT_DIR):
         return ""
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-    backup_filename = f"/tmp/reality_backup_{timestamp}.zip"
+    backup_filename = f"/tmp/backup_{timestamp}.zip"
     
-    # Файлы, которые критичны для этого скрипта
     files_to_backup = ['config', 'users']
     files_found = False
 
@@ -170,13 +122,16 @@ def create_backup() -> str:
         if not files_found:
             if os.path.exists(backup_filename): os.remove(backup_filename)
             return ""
-            
         return backup_filename
     except Exception as e:
-        logger.error(f"Backup creation failed: {e}")
+        logger.error(f"Backup failed: {e}")
         return ""
 
-# --- Декоратор ---
+def restart_services():
+    """Вызывает скрипт с флагом рестарта."""
+    return run_shell(BASE_CMD + "--restart")
+
+# --- Декоратор прав доступа ---
 def restricted(func):
     async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         username: Optional[str] = None
@@ -198,31 +153,35 @@ def restricted(func):
         else:
             chat_id = update.effective_chat.id if update.effective_chat else None
             if chat_id:
-                await context.bot.send_message(chat_id=chat_id, text='⛔ Нет прав доступа.')
+                await context.bot.send_message(chat_id=chat_id, text='⛔ Нет доступа.')
     return wrapped
 
-# --- Handlers ---
+# --- Handlers: Start & Main Menus ---
 
 @restricted
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     keyboard = [
-        [InlineKeyboardButton('👤 Пользователи', callback_data='users_menu')],
-        [InlineKeyboardButton('⚙️ Настройки скрипта', callback_data='settings_menu')],
+        [InlineKeyboardButton('👥 Пользователи', callback_data='menu_users')],
+        [InlineKeyboardButton('⚙️ Настройки', callback_data='menu_settings')],
+        [InlineKeyboardButton('🔄 Перезагрузить службы', callback_data='action_restart')],
+        [InlineKeyboardButton('📥 Сделать Бэкап', callback_data='action_backup')],
     ]
     await context.bot.send_message(
         chat_id=chat_id,
-        text="🤖 <b>Reality-EZPZ Bot</b>\nУправление скриптом и пользователями.",
+        text="🤖 <b>Reality-EZPZ Panel</b>\nУправление сервером через скрипт.",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='HTML'
     )
 
+# --- Handlers: Users ---
+
 @restricted
-async def users_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def menu_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [InlineKeyboardButton('Список / Конфиги', callback_data='show_user')],
-        [InlineKeyboardButton('➕ Добавить', callback_data='add_user')],
-        [InlineKeyboardButton('➖ Удалить', callback_data='delete_user')],
+        [InlineKeyboardButton('📜 Список / QR-код', callback_data='users_list')],
+        [InlineKeyboardButton('➕ Добавить', callback_data='users_add')],
+        [InlineKeyboardButton('➖ Удалить', callback_data='users_del')],
         [InlineKeyboardButton('🔙 Назад', callback_data='start')],
     ]
     await context.bot.send_message(
@@ -233,204 +192,338 @@ async def users_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 @restricted
-async def settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def users_list_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str):
+    """Показывает список пользователей для выбора (просмотр или удаление)."""
+    users = get_users_list()
+    if not users:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Список пользователей пуст.")
+        return
+
+    # action = 'show' or 'del'
+    callback_prefix = "u_show" if action == 'show' else "u_del"
+    
+    keyboard = []
+    for user in users:
+        keyboard.append([InlineKeyboardButton(user, callback_data=f'{callback_prefix}!{user}')])
+    
+    keyboard.append([InlineKeyboardButton('🔙 Назад', callback_data='menu_users')])
+    
+    text = "Выберите пользователя:" if action == 'show' else "Выберите пользователя для удаления:"
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id, 
+        text=text, 
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+@restricted
+async def show_user_config(update: Update, context: ContextTypes.DEFAULT_TYPE, username: str):
     chat_id = update.effective_chat.id
+    msg = await context.bot.send_message(chat_id=chat_id, text=f"⏳ Загрузка конфига для <b>{username}</b>...", parse_mode='HTML')
     
-    # Читаем текущие настройки чтобы показать их (опционально) или просто меню
-    # Ключи переменных в скрипте обычно: PORT, SECURITY, TRANSPORT, SERVER (для SNI)
+    configs = get_user_config(username)
+    back_btn = InlineKeyboardMarkup([[InlineKeyboardButton('🔙 К списку', callback_data='users_list')]])
     
+    await context.bot.delete_message(chat_id=chat_id, message_id=msg.message_id)
+
+    if not configs:
+        await context.bot.send_message(chat_id=chat_id, text="❌ Конфиг не найден или ошибка генерации.", reply_markup=back_btn)
+        return
+
+    for conf in configs:
+        if not conf.strip(): continue
+        
+        # Генерируем QR
+        qr = qrcode.make(conf)
+        bio = io.BytesIO()
+        qr.save(bio, 'PNG')
+        bio.seek(0)
+        
+        # Если конфиг длинный, обрезаем для подписи, но лучше отправлять как моноширинный текст
+        await context.bot.send_photo(
+            chat_id=chat_id,
+            photo=bio,
+            caption=f"<code>{conf}</code>",
+            parse_mode='HTML'
+        )
+    
+    await context.bot.send_message(chat_id=chat_id, text="Готово.", reply_markup=back_btn)
+
+# --- Handlers: Settings ---
+
+@restricted
+async def menu_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Главное меню настроек, отображает текущие значения."""
+    conf = read_current_config()
+    
+    # Формируем текст с текущими значениями
+    info_text = (
+        "⚙️ <b>Настройки Сервера</b>\n\n"
+        f"🔹 <b>Core:</b> {conf.get('core', '?')}\n"
+        f"🔹 <b>Server:</b> {conf.get('server', '?')}\n"
+        f"🔹 <b>Port:</b> {conf.get('port', '?')}\n"
+        f"🔹 <b>Transport:</b> {conf.get('transport', '?')}\n"
+        f"🔹 <b>Security:</b> {conf.get('security', '?')}\n"
+        f"🔹 <b>SNI (Domain):</b> {conf.get('domain', '?')}\n"
+        f"🔹 <b>Path:</b> /{conf.get('service_path', '?')}\n"
+        f"🔹 <b>Host:</b> {conf.get('host_header', 'Не задан')}\n"
+        f"🔹 <b>Warp:</b> {conf.get('warp', 'OFF')}\n"
+    )
+
+    # Кнопки для изменения
     keyboard = [
-        # Mapping: Кнопка -> Ключ переменной в файле config
-        [InlineKeyboardButton('CORE (Ядро)', callback_data='edit_conf!CORE'), InlineKeyboardButton('PORT (Порт)', callback_data='edit_conf!PORT')],
-        [InlineKeyboardButton('TRANSPORT', callback_data='edit_conf!TRANSPORT'), InlineKeyboardButton('SECURITY', callback_data='edit_conf!SECURITY')],
-        [InlineKeyboardButton('SNI (Домен)', callback_data='edit_conf!SERVER'), InlineKeyboardButton('PATH', callback_data='edit_conf!PATH')],
-        [InlineKeyboardButton('WARP', callback_data='edit_conf!WARP'), InlineKeyboardButton('HOST', callback_data='edit_conf!HOST')],
-        [InlineKeyboardButton('📥 Бэкап (config+users)', callback_data='do_backup')],
-        [InlineKeyboardButton('🔄 Применить настройки', callback_data='apply_changes')],
+        [InlineKeyboardButton('Core (Ядро)', callback_data='set_menu_core'), InlineKeyboardButton('Transport', callback_data='set_menu_transport')],
+        [InlineKeyboardButton('Security', callback_data='set_menu_security'), InlineKeyboardButton('Warp', callback_data='set_menu_warp')],
+        [InlineKeyboardButton('Server IP', callback_data='ask_set!server'), InlineKeyboardButton('Port', callback_data='ask_set!port')],
+        [InlineKeyboardButton('SNI Domain', callback_data='ask_set!domain'), InlineKeyboardButton('Path', callback_data='ask_set!path')],
+        [InlineKeyboardButton('Host Header', callback_data='ask_set!host')],
         [InlineKeyboardButton('🔙 Назад', callback_data='start')]
     ]
-    
-    text = (
-        "⚙️ <b>Меню Настроек</b>\n\n"
-        "Здесь изменяются переменные в файле <code>config</code> скрипта.\n"
-        "После изменения нажмите <b>🔄 Применить настройки</b>, чтобы скрипт пересоздал конфигурацию."
-    )
-    
+
     await context.bot.send_message(
-        chat_id=chat_id,
-        text=text,
+        chat_id=update.effective_chat.id,
+        text=info_text,
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='HTML'
     )
 
 @restricted
-async def users_list_action(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, callback: str):
-    chat_id = update.effective_chat.id
-    users = get_users_ezpz()
-    keyboard = [[InlineKeyboardButton(user, callback_data=f'{callback}!{user}')] for user in users]
-    keyboard.append([InlineKeyboardButton('🔙 Назад', callback_data='users_menu')])
-    await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=InlineKeyboardMarkup(keyboard))
-
-@restricted
-async def show_user_config(update: Update, context: ContextTypes.DEFAULT_TYPE, username: str):
-    chat_id = update.effective_chat.id
-    back_markup = InlineKeyboardMarkup([[InlineKeyboardButton('🔙 Назад', callback_data='show_user')]])
-    await context.bot.send_message(chat_id=chat_id, text=f'⏳ Получение конфига для {username}...')
+async def submenu_choice(update: Update, context: ContextTypes.DEFAULT_TYPE, setting_type: str):
+    """Меню выбора для Core, Transport, Security, Warp."""
+    keyboard = []
     
-    config_list = get_config_ezpz(username)
-    if not config_list:
-        await context.bot.send_message(chat_id=chat_id, text="❌ Конфиг не найден.", reply_markup=back_markup)
-        return
-
-    for config in config_list:
-        config = config.strip()
-        if not config: continue
+    if setting_type == 'core':
+        # --core <xray|sing-box>
+        keyboard = [
+            [InlineKeyboardButton('Xray', callback_data='run_set!core!xray')],
+            [InlineKeyboardButton('Sing-Box', callback_data='run_set!core!sing-box')]
+        ]
+        text = "Выберите ядро (Core):"
         
-        # QR Code
-        qr = qrcode.make(config)
-        bio = io.BytesIO()
-        qr.save(bio, 'PNG')
-        bio.seek(0)
-        
-        await context.bot.send_photo(
-            chat_id=chat_id, 
-            photo=bio, 
-            caption=f"<code>{config}</code>", 
-            parse_mode='HTML', 
-            reply_markup=back_markup
-        )
+    elif setting_type == 'transport':
+        # --transport <tcp|http|xhttp|grpc|ws|tuic|hysteria2|shadowtls>
+        # Разобьем на строки для удобства
+        row1 = [InlineKeyboardButton(t, callback_data=f'run_set!transport!{t}') for t in ['tcp', 'http', 'grpc', 'ws']]
+        row2 = [InlineKeyboardButton(t, callback_data=f'run_set!transport!{t}') for t in ['xhttp', 'tuic', 'hysteria2', 'shadowtls']]
+        keyboard = [row1, row2]
+        text = "Выберите транспорт:"
 
-@restricted
-async def ask_config_value(update: Update, context: ContextTypes.DEFAULT_TYPE, key: str):
-    chat_id = update.effective_chat.id
-    context.user_data['expected_input'] = 'config_value'
-    context.user_data['config_key'] = key
+    elif setting_type == 'security':
+        # --security <reality|letsencrypt|selfsigned|notls>
+        opts = ['reality', 'letsencrypt', 'selfsigned', 'notls']
+        keyboard = [[InlineKeyboardButton(o, callback_data=f'run_set!security!{o}')] for o in opts]
+        text = "Выберите тип безопасности (Security):"
+
+    elif setting_type == 'warp':
+        # --enable-warp <true|false>
+        keyboard = [
+            [InlineKeyboardButton('Включить (ON)', callback_data='run_set!enable-warp!true')],
+            [InlineKeyboardButton('Выключить (OFF)', callback_data='run_set!enable-warp!false')]
+        ]
+        text = "Управление Cloudflare WARP:"
     
-    current_conf = read_script_config()
-    current_val = current_conf.get(key, 'Не задано')
+    keyboard.append([InlineKeyboardButton('🔙 Отмена', callback_data='menu_settings')])
     
-    keyboard = [[InlineKeyboardButton('❌ Отмена', callback_data='settings_menu')]]
-    text = (
-        f"✏️ Введите новое значение для <b>{key}</b>.\n"
-        f"Текущее значение в файле: <code>{current_val}</code>"
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=text,
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
-    await context.bot.send_message(chat_id=chat_id, text=text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
 
 @restricted
-async def set_config_value(update: Update, context: ContextTypes.DEFAULT_TYPE, key: str, value: str):
+async def ask_setting_value(update: Update, context: ContextTypes.DEFAULT_TYPE, flag: str):
+    """Запрос текстового значения (порта, домена и т.д.)."""
     chat_id = update.effective_chat.id
+    # Сохраняем ожидаемый ввод
+    context.user_data['input_mode'] = 'setting'
+    context.user_data['setting_flag'] = flag # например 'port' или 'domain'
     
-    if update_script_config(key, value):
-        await context.bot.send_message(
-            chat_id=chat_id, 
-            text=f"✅ Значение <b>{key}</b> изменено на <code>{value}</code>.\n\n⚠️ Не забудьте нажать 'Применить настройки' в меню, чтобы изменения вступили в силу!",
-            parse_mode='HTML'
-        )
-    else:
-        await context.bot.send_message(chat_id=chat_id, text=f"❌ Ошибка записи в файл {SCRIPT_CONFIG_FILE}.")
+    text_map = {
+        'port': 'Введите новый Порт (1-65535):',
+        'server': 'Введите IP адрес или домен сервера:',
+        'domain': 'Введите SNI домен (например, yahoo.com):',
+        'path': 'Введите путь (Path), без начального слеша:',
+        'host': 'Введите Host Header:'
+    }
     
-    await settings_menu(update, context)
+    msg_text = text_map.get(flag, f"Введите значение для {flag}:")
+    
+    keyboard = [[InlineKeyboardButton('❌ Отмена', callback_data='menu_settings')]]
+    await context.bot.send_message(chat_id=chat_id, text=msg_text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 @restricted
-async def apply_changes_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def run_script_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, flag: str, value: str):
+    """Запускает скрипт с нужным флагом."""
     chat_id = update.effective_chat.id
-    msg = await context.bot.send_message(chat_id=chat_id, text="⏳ Запуск пересборки конфигурации (это может занять время)...")
     
-    apply_configuration()
+    # Маппинг внутренних ключей на флаги скрипта
+    # flag приходит либо из callback (ask_set), либо из run_set
     
-    await context.bot.edit_message_text(
+    flag_map = {
+        'core': '--core',
+        'transport': '--transport',
+        'security': '--security',
+        'enable-warp': '--enable-warp',
+        'server': '--server',
+        'port': '--port',
+        'domain': '--domain',
+        'path': '--path',
+        'host': '--host'
+    }
+    
+    script_flag = flag_map.get(flag, f"--{flag}")
+    
+    # Формируем команду
+    cmd = f"{BASE_CMD} {script_flag} {value}"
+    
+    msg = await context.bot.send_message(
         chat_id=chat_id, 
-        message_id=msg.message_id, 
-        text="✅ Команда обновления отправлена.\nПроверьте работоспособность через пару минут."
+        text=f"⏳ Применяю настройку: <code>{script_flag} {value}</code>...\nЭто может занять время (регенерация ключей/рестарт).",
+        parse_mode='HTML'
+    )
+    
+    # Запускаем скрипт
+    output = run_shell(cmd, timeout=300)
+    
+    # Проверка на успех (скрипт reality-ezpz обычно не пишет "Error" в stdout при успехе, но пишет инструкции)
+    if "Error" in output or "Неверный" in output or "Ошибка" in output:
+        res_text = f"❌ <b>Ошибка:</b>\n<pre>{output}</pre>"
+    else:
+        res_text = f"✅ Настройка применена успешно!\n\n<pre>{output[-200:]}</pre>" # Показываем последние 200 символов лога
+        
+    await context.bot.edit_message_text(chat_id=chat_id, message_id=msg.message_id, text=res_text, parse_mode='HTML')
+    
+    # Возвращаемся в меню настроек через небольшую паузу или даем кнопку
+    await context.bot.send_message(
+        chat_id=chat_id, 
+        text="Вернуться в меню:", 
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('🔙 Меню настроек', callback_data='menu_settings')]])
     )
 
+# --- Handlers: System Actions ---
+
 @restricted
-async def do_backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def action_backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    msg = await context.bot.send_message(chat_id=chat_id, text="⏳ Создание архива...")
-    path = create_backup()
+    msg = await context.bot.send_message(chat_id=chat_id, text="⏳ Создание бэкапа (config + users)...")
     
+    path = create_backup_zip()
     if path and os.path.exists(path):
-        await context.bot.send_document(chat_id=chat_id, document=open(path, 'rb'), filename='reality_ezpz_backup.zip')
+        await context.bot.send_document(
+            chat_id=chat_id, 
+            document=open(path, 'rb'), 
+            filename="reality_ezpz_backup.zip",
+            caption="✅ Бэкап готов."
+        )
         os.remove(path)
         await context.bot.delete_message(chat_id=chat_id, message_id=msg.message_id)
     else:
-        await context.bot.edit_message_text(chat_id=chat_id, message_id=msg.message_id, text="❌ Ошибка: файлы config или users не найдены в папке скрипта.")
+        await context.bot.edit_message_text(chat_id=chat_id, message_id=msg.message_id, text="❌ Не удалось создать бэкап. Проверьте путь /opt/reality-ezpz.")
 
 @restricted
-async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    if query:
-        await query.answer()
-        data = query.data
-        
-        if '!' in data:
-            cmd, param = data.split('!', 1)
-        else:
-            cmd, param = data, None
-
-        # Navigation
-        if cmd == 'start': await start(update, context)
-        elif cmd == 'users_menu': await users_menu(update, context)
-        elif cmd == 'settings_menu': await settings_menu(update, context)
-        
-        # User Actions
-        elif cmd == 'show_user': 
-            if param: await show_user_config(update, context, param)
-            else: await users_list_action(update, context, 'Выберите пользователя:', 'show_user')
-            
-        elif cmd == 'delete_user':
-            if param:
-                # Ask confirmation
-                k = [[InlineKeyboardButton('Да, удалить', callback_data=f'confirm_del!{param}'), InlineKeyboardButton('Нет', callback_data='users_menu')]]
-                await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Удалить {param}?", reply_markup=InlineKeyboardMarkup(k))
-            else:
-                await users_list_action(update, context, 'Кого удалить?', 'delete_user')
-        
-        elif cmd == 'confirm_del':
-            delete_user_ezpz(param)
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Пользователь {param} удален.")
-            await users_menu(update, context)
-
-        elif cmd == 'add_user':
-            context.user_data['expected_input'] = 'username'
-            await context.bot.send_message(chat_id=update.effective_chat.id, text="Введите имя пользователя:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('Отмена', callback_data='users_menu')]]))
-
-        # Settings Actions
-        elif cmd == 'edit_conf':
-            await ask_config_value(update, context, param)
-        elif cmd == 'apply_changes':
-            await apply_changes_action(update, context)
-        elif cmd == 'do_backup':
-            await do_backup(update, context)
-
-@restricted
-async def user_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def action_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    if 'expected_input' in context.user_data:
-        expected = context.user_data.pop('expected_input')
-        
-        if expected == 'username':
-            name = update.message.text.strip()
-            if not username_regex.match(name):
-                await context.bot.send_message(chat_id=chat_id, text="Некорректное имя (только a-Z0-9).")
-                return
-            add_user_ezpz(name)
-            await context.bot.send_message(chat_id=chat_id, text=f"Пользователь {name} добавлен.")
-            await show_user_config(update, context, name)
-            
-        elif expected == 'config_value':
-            key = context.user_data.pop('config_key', None)
-            val = update.message.text.strip()
-            if key:
-                await set_config_value(update, context, key, val)
+    msg = await context.bot.send_message(chat_id=chat_id, text="⏳ Перезагрузка служб (docker compose)...")
+    
+    output = restart_services()
+    
+    if "Error" not in output:
+        await context.bot.edit_message_text(chat_id=chat_id, message_id=msg.message_id, text="✅ Службы успешно перезагружены.")
+    else:
+        await context.bot.edit_message_text(chat_id=chat_id, message_id=msg.message_id, text=f"❌ Ошибка:\n{output}")
 
+# --- Input Handling & Dispatcher ---
+
+@restricted
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    
+    # Разбор данных: command!arg1!arg2
+    parts = data.split('!')
+    cmd = parts[0]
+    args = parts[1:]
+
+    # Навигация
+    if cmd == 'start': await start(update, context)
+    elif cmd == 'menu_users': await menu_users(update, context)
+    elif cmd == 'menu_settings': await menu_settings(update, context)
+    
+    # Пользователи
+    elif cmd == 'users_list': await users_list_handler(update, context, 'show')
+    elif cmd == 'users_del': await users_list_handler(update, context, 'del')
+    elif cmd == 'users_add':
+        context.user_data['input_mode'] = 'add_user'
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Введите имя нового пользователя:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('Отмена', callback_data='menu_users')]]))
+    
+    elif cmd == 'u_show': await show_user_config(update, context, args[0])
+    elif cmd == 'u_del':
+        # Подтверждение
+        username = args[0]
+        kb = [[InlineKeyboardButton('🗑 Да, удалить', callback_data=f'confirm_del!{username}'), InlineKeyboardButton('Отмена', callback_data='menu_users')]]
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Удалить пользователя <b>{username}</b>?", parse_mode='HTML', reply_markup=InlineKeyboardMarkup(kb))
+    
+    elif cmd == 'confirm_del':
+        username = args[0]
+        delete_user_cmd(username)
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Пользователь {username} удален.")
+        await menu_users(update, context)
+
+    # Настройки
+    elif cmd == 'set_menu_core': await submenu_choice(update, context, 'core')
+    elif cmd == 'set_menu_transport': await submenu_choice(update, context, 'transport')
+    elif cmd == 'set_menu_security': await submenu_choice(update, context, 'security')
+    elif cmd == 'set_menu_warp': await submenu_choice(update, context, 'warp')
+    
+    elif cmd == 'ask_set': 
+        # ask_set!port
+        await ask_setting_value(update, context, args[0])
+    
+    elif cmd == 'run_set':
+        # run_set!core!xray
+        flag, value = args[0], args[1]
+        await run_script_setting(update, context, flag, value)
+    
+    # Действия
+    elif cmd == 'action_backup': await action_backup(update, context)
+    elif cmd == 'action_restart': await action_restart(update, context)
+
+@restricted
+async def text_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    mode = context.user_data.pop('input_mode', None)
+    chat_id = update.effective_chat.id
+    text = update.message.text.strip()
+    
+    if mode == 'add_user':
+        if not username_regex.match(text):
+            await context.bot.send_message(chat_id=chat_id, text="❌ Некорректное имя (только латиница и цифры). Попробуйте снова.")
+            return
+        add_user_cmd(text)
+        await context.bot.send_message(chat_id=chat_id, text=f"✅ Пользователь {text} создан.")
+        await show_user_config(update, context, text)
+    
+    elif mode == 'setting':
+        flag = context.user_data.pop('setting_flag', None)
+        if flag:
+            # Валидация порта
+            if flag == 'port' and (not text.isdigit() or not (1 <= int(text) <= 65535)):
+                await context.bot.send_message(chat_id=chat_id, text="❌ Порт должен быть числом от 1 до 65535.")
+                return
+            
+            await run_script_setting(update, context, flag, text)
+
+# Main
 def main():
+    if not os.path.exists(SCRIPT_EXEC):
+        logger.error(f"SCRIPT NOT FOUND AT {SCRIPT_EXEC}. PLEASE CHECK PATH.")
+        
     app = ApplicationBuilder().token(TOKEN).build()
+
     app.add_handler(CommandHandler('start', start))
-    app.add_handler(CallbackQueryHandler(button))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, user_input))
-    logger.info("Bot started")
+    app.add_handler(CallbackQueryHandler(button_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_input_handler))
+
+    logger.info("Bot started...")
     app.run_polling()
 
 if __name__ == '__main__':
