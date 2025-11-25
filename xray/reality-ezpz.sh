@@ -15,10 +15,10 @@ declare -A image
 config_path="/opt/reality-ezpz"
 compose_project='reality-ezpz'
 tgbot_project='tgbot'
-BACKTITLE=RealityEZPZ
-MENU="Select an option:"
+BACKTITLE="Панель управления RealityEZPZ"
+MENU="Выберите действие:"
 HEIGHT=30
-WIDTH=60
+WIDTH=65
 CHOICE_HEIGHT=20
 
 image[xray]="teddysun/xray:latest"
@@ -47,11 +47,13 @@ defaults[server]=$(curl -fsSL --ipv4 https://cloudflare.com/cdn-cgi/trace | grep
 defaults[tgbot]=OFF
 defaults[tgbot_token]=""
 defaults[tgbot_admins]=""
+defaults[host_header]=""
 
 config_items=(
   "core"
   "security"
   "service_path"
+  "host_header"
   "public_key"
   "private_key"
   "short_id"
@@ -83,46 +85,50 @@ regex[tgbot_admins]="^[a-zA-Z][a-zA-Z0-9_]{4,31}(,[a-zA-Z][a-zA-Z0-9_]{4,31})*$"
 regex[domain_port]="^[a-zA-Z0-9]+([-.][a-zA-Z0-9]+)*\.[a-zA-Z]{2,}(:[1-9][0-9]*)?$"
 regex[file_path]="^[a-zA-Z0-9_/.-]+$"
 regex[url]="^(http|https)://([a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|[0-9]{1,3}(\.[0-9]{1,3}){3})(:[0-9]{1,5})?(/.*)?$"
+regex[path]="^/.*$"
 
 function show_help {
   echo ""
-  echo "Usage: reality-ezpz.sh [-t|--transport=tcp|http|grpc|ws|tuic|hysteria2|shadowtls] [-d|--domain=<domain>] [--server=<server>] [--regenerate] [--default]
-  [-r|--restart] [--enable-safenet=true|false] [--port=<port>] [-c|--core=xray|sing-box] [--enable-warp=true|false]
-  [--warp-license=<license>] [--security=reality|letsencrypt|selfsigned] [-m|--menu] [--show-server-config] [--add-user=<username>] [--lists-users]
-  [--show-user=<username>] [--delete-user=<username>] [--backup] [--restore=<url|file>] [--backup-password=<password>] [-u|--uninstall]"
+  echo "Использование: reality-ezpz.sh [-t|--transport=tcp|http|xhttp|grpc|ws|tuic|hysteria2|shadowtls] [-d|--domain=<домен>] [--server=<сервер>] [--regenerate] [--default]
+  [-r|--restart] [--enable-safenet=true|false] [--port=<порт>] [-c|--core=xray|sing-box] [--enable-warp=true|false]
+  [--warp-license=<лицензия>] [--security=reality|letsencrypt|selfsigned|notls] [-m|--menu] [--show-server-config] [--add-user=<имя>] [--lists-users]
+  [--show-user=<имя>] [--delete-user=<имя>] [--backup] [--restore=<url|файл>] [--backup-password=<пароль>] [-u|--uninstall]
+  [--path=<путь>] [--host=<хост>]"
   echo ""
-  echo "  -t, --transport <tcp|http|grpc|ws|tuic|hysteria2|shadowtls> Transport protocol (tcp, http, grpc, ws, tuic, hysteria2, shadowtls, default: ${defaults[transport]})"
-  echo "  -d, --domain <domain>     Domain to use as SNI (default: ${defaults[domain]})"
-  echo "      --server <server>     IP address or domain name of server (Must be a valid domain if using letsencrypt security)"
-  echo "      --regenerate          Regenerate public and private keys"
-  echo "      --default             Restore default configuration"
-  echo "  -r  --restart             Restart services"
-  echo "  -u, --uninstall           Uninstall reality"
-  echo "      --enable-safenet <true|false> Enable or disable safenet (blocking malware and adult content)"
-  echo "      --port <port>         Server port (default: ${defaults[port]})"
-  echo "      --enable-warp <true|false> Enable or disable Cloudflare warp"
-  echo "      --warp-license <warp-license> Add Cloudflare warp+ license"
-  echo "  -c  --core <sing-box|xray> Select core (xray, sing-box, default: ${defaults[core]})"
-  echo "      --security <reality|letsencrypt|selfsigned> Select type of TLS encryption (reality, letsencrypt, selfsigned, default: ${defaults[security]})" 
-  echo "  -m  --menu                Show menu"
-  echo "      --enable-tgbot <true|false> Enable Telegram bot for user management"
-  echo "      --tgbot-token <token> Token of Telegram bot"
-  echo "      --tgbot-admins <telegram-username> Usernames of telegram bot admins (Comma separated list of usernames without leading '@')"
-  echo "      --show-server-config  Print server configuration"
-  echo "      --add-user <username> Add new user"
-  echo "      --list-users          List all users"
-  echo "      --show-user <username> Shows the config and QR code of the user"
-  echo "      --delete-user <username> Delete the user"
-  echo "      --backup              Backup users and configuration and upload it to temp.sh"
-  echo "      --restore <url|file>  Restore backup from URL or file"
-  echo "      --backup-password <password> Create/Restore password protected backup file"
-  echo "  -h, --help                Display this help message"
+  echo "  -t, --transport <протокол> Транспортный протокол (по умолчанию: ${defaults[transport]})"
+  echo "  -d, --domain <домен>       Домен для SNI (по умолчанию: ${defaults[domain]})"
+  echo "      --server <сервер>      IP адрес или домен сервера (Обязателен домен, если используется letsencrypt)"
+  echo "      --path <путь>          Путь сервиса (для ws, grpc, xhttp, http)"
+  echo "      --host <хост>          Заголовок Host (для ws, http, xhttp)"
+  echo "      --regenerate           Перегенерировать публичные и приватные ключи"
+  echo "      --default              Восстановить настройки по умолчанию"
+  echo "  -r  --restart              Перезапустить службы"
+  echo "  -u, --uninstall            Удалить скрипт и контейнеры"
+  echo "      --enable-safenet <true|false> Включить/выключить SafeNet (блокировка вирусов и взрослого контента)"
+  echo "      --port <порт>          Порт сервера (по умолчанию: ${defaults[port]})"
+  echo "      --enable-warp <true|false> Включить/выключить Cloudflare WARP"
+  echo "      --warp-license <лицензия> Добавить лицензию Cloudflare WARP+"
+  echo "  -c  --core <sing-box|xray> Выбрать ядро (xray, sing-box, по умолчанию: ${defaults[core]})"
+  echo "      --security <reality|letsencrypt|selfsigned|notls> Тип шифрования (notls = без шифрования, по умолчанию: ${defaults[security]})" 
+  echo "  -m  --menu                 Показать меню"
+  echo "      --enable-tgbot <true|false> Включить Telegram бота для управления"
+  echo "      --tgbot-token <токен>  Токен Telegram бота"
+  echo "      --tgbot-admins <юзернейм> Юзернеймы админов бота (через запятую, без символа '@')"
+  echo "      --show-server-config   Показать конфигурацию сервера"
+  echo "      --add-user <имя>       Добавить нового пользователя"
+  echo "      --list-users           Список всех пользователей"
+  echo "      --show-user <имя>      Показать конфиг и QR код пользователя"
+  echo "      --delete-user <имя>    Удалить пользователя"
+  echo "      --backup               Создать резервную копию и загрузить на temp.sh"
+  echo "      --restore <url|файл>   Восстановить из резервной копии (URL или путь к файлу)"
+  echo "      --backup-password <пароль> Создать/Восстановить защищенный паролем бэкап"
+  echo "  -h, --help                 Показать это сообщение"
   return 1
 }
 
 function parse_args {
   local opts
-  opts=$(getopt -o t:d:ruc:mh --long transport:,domain:,server:,regenerate,default,restart,uninstall,enable-safenet:,port:,warp-license:,enable-warp:,core:,security:,menu,show-server-config,add-user:,list-users,show-user:,delete-user:,backup,restore:,backup-password:,enable-tgbot:,tgbot-token:,tgbot-admins:,help -- "$@")
+  opts=$(getopt -o t:d:ruc:mh --long transport:,domain:,server:,path:,host:,regenerate,default,restart,uninstall,enable-safenet:,port:,warp-license:,enable-warp:,core:,security:,menu,show-server-config,add-user:,list-users,show-user:,delete-user:,backup,restore:,backup-password:,enable-tgbot:,tgbot-token:,tgbot-admins:,help -- "$@")
   if [[ $? -ne 0 ]]; then
     return 1
   fi
@@ -132,11 +138,11 @@ function parse_args {
       -t|--transport)
         args[transport]="$2"
         case ${args[transport]} in
-          tcp|http|grpc|ws|tuic|hysteria2|shadowtls)
+          tcp|http|xhttp|grpc|ws|tuic|hysteria2|shadowtls)
             shift 2
             ;;
           *)
-            echo "Invalid transport protocol: ${args[transport]}"
+            echo "Неверный транспортный протокол: ${args[transport]}"
             return 1
             ;;
         esac
@@ -144,7 +150,7 @@ function parse_args {
       -d|--domain)
         args[domain]="$2"
         if ! [[ ${args[domain]} =~ ${regex[domain_port]} ]]; then
-          echo "Invalid domain: ${args[domain]}"
+          echo "Неверный домен: ${args[domain]}"
           return 1
         fi
         shift 2
@@ -152,9 +158,19 @@ function parse_args {
       --server)
         args[server]="$2"
         if ! [[ ${args[server]} =~ ${regex[domain]} || ${args[server]} =~ ${regex[ip]} ]]; then
-          echo "Invalid server: ${args[domain]}"
+          echo "Неверный сервер: ${args[domain]}"
           return 1
         fi
+        shift 2
+        ;;
+      --path)
+        args[service_path]="$2"
+        # Remove leading slash if present to avoid double slash
+        args[service_path]="${args[service_path]#/}" 
+        shift 2
+        ;;
+      --host)
+        args[host_header]="$2"
         shift 2
         ;;
       --regenerate)
@@ -180,7 +196,7 @@ function parse_args {
             shift 2
             ;;
           *)
-            echo "Invalid safenet option: $2"
+            echo "Неверная опция safenet: $2"
             return 1
             ;;
         esac
@@ -192,7 +208,7 @@ function parse_args {
             shift 2
             ;;
           *)
-            echo "Invalid warp option: $2"
+            echo "Неверная опция warp: $2"
             return 1
             ;;
         esac
@@ -200,10 +216,10 @@ function parse_args {
       --port)
         args[port]="$2"
         if ! [[ ${args[port]} =~ ${regex[port]} ]]; then
-          echo "Invalid port number: ${args[port]}"
+          echo "Неверный номер порта: ${args[port]}"
           return 1
         elif ((args[port] < 1 || args[port] > 65535)); then
-          echo "Port number out of range: ${args[port]}"
+          echo "Порт вне диапазона: ${args[port]}"
           return 1
         fi
         shift 2
@@ -211,7 +227,7 @@ function parse_args {
       --warp-license)
         args[warp_license]="$2"
         if ! [[ ${args[warp_license]} =~ ${regex[warp_license]} ]]; then
-          echo "Invalid warp license: ${args[warp_license]}"
+          echo "Неверная лицензия warp: ${args[warp_license]}"
           return 1
         fi
         shift 2
@@ -223,7 +239,7 @@ function parse_args {
             shift 2
             ;;
           *)
-            echo "Invalid core: ${args[core]}"
+            echo "Неверное ядро: ${args[core]}"
             return 1
             ;;
         esac
@@ -231,11 +247,11 @@ function parse_args {
       --security)
         args[security]="$2"
         case ${args[security]} in
-          reality|letsencrypt|selfsigned)
+          reality|letsencrypt|selfsigned|notls)
             shift 2
             ;;
           *)
-            echo "Invalid TLS security option: ${args[security]}"
+            echo "Неверная опция безопасности: ${args[security]}"
             return 1
             ;;
         esac
@@ -251,7 +267,7 @@ function parse_args {
             shift 2
             ;;
           *)
-            echo "Invalid enable-tgbot option: $2"
+            echo "Неверная опция enable-tgbot: $2"
             return 1
             ;;
         esac
@@ -259,11 +275,11 @@ function parse_args {
       --tgbot-token)
         args[tgbot_token]="$2"
         if [[ ! ${args[tgbot_token]} =~ ${regex[tgbot_token]} ]]; then
-          echo "Invalid Telegram Bot Token: ${args[tgbot_token]}"
+          echo "Неверный токен Telegram бота: ${args[tgbot_token]}"
           return 1
         fi 
         if ! curl -sSfL -m 3 "https://api.telegram.org/bot${args[tgbot_token]}/getMe" >/dev/null 2>&1; then
-          echo "Invalid Telegram Bot Token: Telegram Bot Token is incorrect. Check it again."
+          echo "Неверный токен Telegram бота: Токен некорректен. Проверьте его."
           return 1
         fi
         shift 2
@@ -271,7 +287,7 @@ function parse_args {
       --tgbot-admins)
         args[tgbot_admins]="$2"
         if [[ ! ${args[tgbot_admins]} =~ ${regex[tgbot_admins]} || $tgbot_admins =~ .+_$ || $tgbot_admins =~ .+_,.+ ]]; then
-          echo "Invalid Telegram Bot Admins Username: ${args[tgbot_admins]}\nThe usernames must separated by ',' without leading '@' character or any extra space."
+          echo "Неверное имя админа Telegram: ${args[tgbot_admins]}\nИмена должны быть разделены запятой ',' без символа '@' и пробелов."
          return 1
         fi
         shift 2
@@ -283,7 +299,7 @@ function parse_args {
       --add-user)
         args[add_user]="$2"
         if ! [[ ${args[add_user]} =~ ${regex[username]} ]]; then
-          echo "Invalid username: ${args[add_user]}\nUsername can only contains A-Z, a-z and 0-9"
+          echo "Неверное имя пользователя: ${args[add_user]}\nИмя может содержать только A-Z, a-z и 0-9"
           return 1
         fi
         shift 2
@@ -307,7 +323,7 @@ function parse_args {
       --restore)
         args[restore]="$2"
         if [[ ! ${args[restore]} =~ ${regex[file_path]} ]] && [[ ! ${args[restore]} =~ ${regex[url]} ]]; then
-          echo "Invalid: Backup file path or URL is not valid."
+          echo "Ошибка: Неверный путь к файлу бэкапа или URL."
           return 1
         fi
         shift 2
@@ -324,7 +340,7 @@ function parse_args {
         break
         ;;
       *)
-        echo "Unknown option: $1"
+        echo "Неизвестная опция: $1"
         return 1
         ;;
     esac
@@ -353,7 +369,7 @@ function backup {
   fi
   if ! backup_file_url=$(curl -fsS -m 30 -F "file=@/tmp/${backup_name}" "https://temp.sh/upload"); then
     rm -f "/tmp/${backup_name}"
-    echo "Error in uploading backup file" >&2
+    echo "Ошибка при загрузке файла бэкапа" >&2
     return 1
   fi
   rm -f "/tmp/${backup_name}"
@@ -371,12 +387,12 @@ function restore {
     temp_file=$(mktemp -u)
     if [[ "${backup_file}" =~ ^https?://temp\.sh/ ]]; then
       if ! curl -fSsL -m 30 -X POST "${backup_file}" -o "${temp_file}"; then
-        echo "Cannot download or find backup file" >&2
+        echo "Невозможно скачать или найти файл бэкапа" >&2
         return 1
       fi
     else
       if ! curl -fSsL -m 30 "${backup_file}" -o "${temp_file}"; then
-        echo "Cannot download or find backup file" >&2
+        echo "Невозможно скачать или найти файл бэкапа" >&2
         return 1
       fi
     fi
@@ -393,15 +409,15 @@ function restore {
   eval "$current_state"
   if [[ ${unzip_exit_code} -eq 0 ]]; then
     if ! echo "${unzip_output}" | grep -q 'config'; then
-      echo "The provided file is not a reality-ezpz backup file." >&2
+      echo "Предоставленный файл не является бэкапом reality-ezpz." >&2
       rm -f "${temp_file}"
       return 1
     fi
   else
     if echo "${unzip_output}" | grep -q 'incorrect password'; then
-      echo "The provided password for backup file is incorrect." >&2
+      echo "Неверный пароль для файла бэкапа." >&2
     else
-      echo "An error occurred during zip file verification: ${unzip_output}" >&2
+      echo "Произошла ошибка при проверке zip архива: ${unzip_output}" >&2
     fi
     rm -f "${temp_file}"
     return 1
@@ -417,7 +433,7 @@ function restore {
   unzip_exit_code=$?
   eval "$current_state"
   if [[ ${unzip_exit_code} -ne 0 ]]; then
-    echo "Error in backup restore: ${unzip_output}" >&2
+    echo "Ошибка при восстановлении бэкапа: ${unzip_output}" >&2
     rm -f "${temp_file}"
     return 1
   fi
@@ -447,9 +463,12 @@ function parse_config_file {
   done < "${path[config]}"
   if [[ -z "${config_file[public_key]}" || \
         -z "${config_file[private_key]}" || \
-        -z "${config_file[short_id]}" || \
-        -z "${config_file[service_path]}" ]]; then
+        -z "${config_file[short_id]}" ]]; then
     generate_keys
+  fi
+  if [[ -z "${config_file[service_path]}" ]]; then
+     # Allow empty service path without regeneration
+     :
   fi
   return 0
 }
@@ -468,18 +487,18 @@ function parse_users_file {
     if [[ -z "${users["${args[add_user]}"]}" ]]; then
       users["${args[add_user]}"]=$(cat /proc/sys/kernel/random/uuid)
     else
-      echo 'User "'"${args[add_user]}"'" already exists.'
+      echo 'Пользователь "'"${args[add_user]}"'" уже существует.'
     fi
   fi
   if [[ -n ${args[delete_user]} ]]; then
     if [[ -n "${users["${args[delete_user]}"]}" ]]; then
       if [[ ${#users[@]} -eq 1 ]]; then
-        echo -e "You cannot delete the only user.\nAt least one user is needed.\nCreate a new user, then delete this one."
+        echo -e "Нельзя удалить единственного пользователя.\nНеобходим минимум один пользователь.\nСоздайте нового, затем удалите этого."
         exit 1
       fi
       unset users["${args[delete_user]}"]
     else
-      echo "User "${args[delete_user]}" does not exists."
+      echo "Пользователь "${args[delete_user]}" не существует."
       exit 1
     fi
   fi
@@ -535,43 +554,47 @@ function build_config {
     return 0
   fi
   if [[ ${config[tgbot]} == 'ON' && -z ${config[tgbot_token]} ]]; then
-    echo 'To enable Telegram bot, you have to give the token of bot with --tgbot-token option.'
+    echo 'Чтобы включить Telegram бота, вы должны указать токен бота с помощью опции --tgbot-token.'
     exit 1
   fi
   if [[ ${config[tgbot]} == 'ON' && -z ${config[tgbot_admins]} ]]; then
-    echo 'To enable Telegram bot, you have to give the list of authorized Telegram admins username with --tgbot-admins option.'
+    echo 'Чтобы включить Telegram бота, вы должны указать список авторизованных админов с помощью опции --tgbot-admins.'
     exit 1
   fi
   if [[ ${config[warp]} == 'ON' && -z ${config[warp_license]} ]]; then
-    echo 'To enable WARP+, you have to give WARP+ license with --warp-license option.'
+    echo 'Чтобы включить WARP+, вы должны указать лицензию WARP+ с помощью опции --warp-license.'
     exit 1
   fi
   if [[ ! ${config[server]} =~ ${regex[domain]} && ${config[security]} == 'letsencrypt' ]]; then
-    echo 'You have to assign a domain to server with "--server <domain>" option if you want to use "letsencrypt" as TLS certifcate.'
+    echo 'Вы должны назначить домен серверу с помощью опции "--server <domain>", если хотите использовать "letsencrypt".'
     exit 1
   fi
   if [[ ${config[transport]} == 'ws' && ${config[security]} == 'reality' ]]; then
-    echo 'You cannot use "ws" transport with "reality" TLS certificate. Use other transports or change TLS certifcate to letsencrypt or selfsigned'
+    echo 'Вы не можете использовать транспорт "ws" с "reality". Используйте другой транспорт или измените безопасность.'
+    exit 1
+  fi
+  if [[ ${config[transport]} == 'xhttp' && ${config[core]} != 'xray' ]]; then
+    echo 'Вы можете использовать транспорт "xhttp" только с ядром "xray". Смените ядро на xray.'
     exit 1
   fi
   if [[ ${config[transport]} == 'tuic' && ${config[security]} == 'reality' ]]; then
-    echo 'You cannot use "tuic" transport with "reality" TLS certificate. Use other transports or change TLS certifcate to letsencrypt or selfsigned'
+    echo 'Вы не можете использовать транспорт "tuic" с "reality". Используйте другой транспорт или измените безопасность на letsencrypt или selfsigned'
     exit 1
   fi
   if [[ ${config[transport]} == 'tuic' && ${config[core]} == 'xray' ]]; then
-    echo 'You cannot use "tuic" transport with "xray" core. Use other transports or change core to sing-box'
+    echo 'Вы не можете использовать транспорт "tuic" с ядром "xray". Используйте другой транспорт или смените ядро на sing-box'
     exit 1
   fi
   if [[ ${config[transport]} == 'hysteria2' && ${config[security]} == 'reality' ]]; then
-    echo 'You cannot use "hysteria2" transport with "reality" TLS certificate. Use other transports or change TLS certifcate to letsencrypt or selfsigned'
+    echo 'Вы не можете использовать транспорт "hysteria2" с "reality". Используйте другой транспорт или измените безопасность на letsencrypt или selfsigned'
     exit 1
   fi
   if [[ ${config[transport]} == 'hysteria2' && ${config[core]} == 'xray' ]]; then
-    echo 'You cannot use "hysteria2" transport with "xray" core. Use other transports or change core to sing-box'
+    echo 'Вы не можете использовать транспорт "hysteria2" с ядром "xray". Используйте другой транспорт или смените ядро на sing-box'
     exit 1
   fi
   if [[ ${config[transport]} == 'shadowtls' && ${config[core]} == 'xray' ]]; then
-    echo 'You cannot use "shadowtls" transport with "xray" core. Use other transports or change core to sing-box'
+    echo 'Вы не можете использовать транспорт "shadowtls" с ядром "xray". Используйте другой транспорт или смените ядро на sing-box'
     exit 1
   fi
   if [[ ${config[security]} == 'letsencrypt' && ${config[port]} -ne 443 ]]; then
@@ -585,17 +608,17 @@ function build_config {
       done
     fi
     if [[ ${free_80} != 'true' ]]; then
-      echo 'Port 80 must be free if you want to use "letsencrypt" as the security option.'
+      echo 'Порт 80 должен быть свободен, если вы хотите использовать "letsencrypt".'
       exit 1
     fi
   fi
-  if [[ (-n "${args[security]}" || -n "${args[transport]}") && ("${args[security]}" == 'reality' || "${args[transport]}" == 'shadowtls') && ("${config_file[security]}" != 'reality' && "${config_file[transport]}" != 'shadowtls') ]]; then
+  if [[ (-n "${args[security]}" || -n "${args[transport]}") && ("${args[security]}" == 'reality' || "${args[security]}" == 'notls' || "${args[transport]}" == 'shadowtls') && ("${config_file[security]}" != 'reality' && "${config_file[security]}" != 'notls' && "${config_file[transport]}" != 'shadowtls') ]]; then
     config[domain]="${defaults[domain]}"
   fi
-  if [[ (-n "${args[security]}" || -n "${args[transport]}") && ("${args[security]}" != 'reality' && "${args[transport]}" != 'shadowtls') && ("${config_file[security]}" == 'reality' || "${config_file[transport]}" == 'shadowtls') ]]; then
+  if [[ (-n "${args[security]}" || -n "${args[transport]}") && ("${args[security]}" != 'reality' && "${args[security]}" != 'notls' && "${args[transport]}" != 'shadowtls') && ("${config_file[security]}" == 'reality' || "${config_file[security]}" == 'notls' || "${config_file[transport]}" == 'shadowtls') ]]; then
     config[domain]="${config[server]}"
   fi
-  if [[ -n "${args[server]}" && ("${config[security]}" != 'reality' && "${config[transport]}" != 'shadowtls') ]]; then
+  if [[ -n "${args[server]}" && ("${config[security]}" != 'reality' && "${config[security]}" != 'notls' && "${config[transport]}" != 'shadowtls') ]]; then
     config[domain]="${config[server]}"
   fi
   if [[ -n "${args[warp]}" && "${args[warp]}" == 'OFF' && "${config_file[warp]}" == 'ON' ]]; then
@@ -620,7 +643,7 @@ function build_config {
       config[warp]='OFF'
       config[warp_license]=""
       warp_delete_account "${config[warp_id]}" "${config[warp_token]}"
-      echo "WARP has been disabled due to the license error."
+      echo "WARP был отключен из-за ошибки лицензии."
     fi 
   fi
 }
@@ -666,7 +689,7 @@ function uninstall {
     docker-compose --project-directory "${config_path}/tgbot" -p ${tgbot_project} down --timeout 2 || true
   fi
   rm -rf "${config_path}"
-  echo "Reality-EZPZ uninstalled successfully."
+  echo "Reality-EZPZ успешно удален."
   exit 0
 }
 
@@ -686,7 +709,7 @@ function install_packages {
       yum install qrencode newt jq vim-common zip unzip -y
       return 0
     fi
-    echo "OS is not supported!"
+    echo "ОС не поддерживается!"
     return 1
   fi
 }
@@ -724,23 +747,23 @@ networks:
 services:
   engine:
     image: ${image[${config[core]}]}
-    $([[ ${config[security]} == 'reality' || ${config[transport]} == 'shadowtls' ]] && echo "ports:" || true)
+    $([[ ${config[security]} == 'reality' || ${config[transport]} == 'shadowtls' || ${config[security]} == 'notls' ]] && echo "ports:" || true)
     $([[ (${config[security]} == 'reality' || ${config[transport]} == 'shadowtls') && ${config[port]} -eq 443 ]] && echo '- 80:8080' || true)
-    $([[ ${config[security]} == 'reality' || ${config[transport]} == 'shadowtls' ]] && echo "- ${config[port]}:8443" || true)
+    $([[ ${config[security]} == 'reality' || ${config[transport]} == 'shadowtls' || ${config[security]} == 'notls' ]] && echo "- ${config[port]}:8443" || true)
     $([[ ${config[transport]} == 'tuic' || ${config[transport]} == 'hysteria2' ]] && echo "ports:" || true)
     $([[ ${config[transport]} == 'tuic' || ${config[transport]} == 'hysteria2' ]] && echo "- ${config[port]}:8443/udp" || true)
-    $([[ ${config[security]} != 'reality' && ${config[transport]} != 'shadowtls' ]] && echo "expose:" || true)
-    $([[ ${config[security]} != 'reality' && ${config[transport]} != 'shadowtls' ]] && echo "- 8443" || true)
+    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[transport]} != 'shadowtls' ]] && echo "expose:" || true)
+    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[transport]} != 'shadowtls' ]] && echo "- 8443" || true)
     restart: always
     environment:
       TZ: Etc/UTC
     volumes:
     - ./${path[engine]#${config_path}/}:/etc/${config[core]}/config.json
-    $([[ ${config[security]} != 'reality' ]] && { [[ ${config[transport]} == 'http' ]] || [[ ${config[transport]} == 'tcp' ]] || [[ ${config[transport]} == 'tuic' ]] || [[ ${config[transport]} == 'hysteria2' ]]; } && echo "- ./${path[server_crt]#${config_path}/}:/etc/${config[core]}/server.crt" || true)
-    $([[ ${config[security]} != 'reality' ]] && { [[ ${config[transport]} == 'http' ]] || [[ ${config[transport]} == 'tcp' ]] || [[ ${config[transport]} == 'tuic' ]] || [[ ${config[transport]} == 'hysteria2' ]]; } && echo "- ./${path[server_key]#${config_path}/}:/etc/${config[core]}/server.key" || true)
+    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' ]] && { [[ ${config[transport]} == 'http' ]] || [[ ${config[transport]} == 'tcp' ]] || [[ ${config[transport]} == 'tuic' ]] || [[ ${config[transport]} == 'hysteria2' ]]; } && echo "- ./${path[server_crt]#${config_path}/}:/etc/${config[core]}/server.crt" || true)
+    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' ]] && { [[ ${config[transport]} == 'http' ]] || [[ ${config[transport]} == 'tcp' ]] || [[ ${config[transport]} == 'tuic' ]] || [[ ${config[transport]} == 'hysteria2' ]]; } && echo "- ./${path[server_key]#${config_path}/}:/etc/${config[core]}/server.key" || true)
     networks:
     - reality
-$(if [[ ${config[security]} != 'reality' && ${config[transport]} != 'shadowtls' ]]; then
+$(if [[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[transport]} != 'shadowtls' ]]; then
 echo "
   nginx:
     image: ${image[nginx]}
@@ -1073,6 +1096,8 @@ function generate_engine_config {
       "users": [${users_object}],
       $(if [[ ${config[security]} == 'reality' && ${config[transport]} != 'shadowtls' ]]; then
         echo "${reality_object}"
+      elif [[ ${config[security]} == 'notls' ]]; then
+        echo '"tls":{"enabled": false}'
       elif [[ ${config[transport]} == 'http' || ${config[transport]} == 'tcp' || ${config[transport]} == 'tuic' || ${config[transport]} == 'hysteria2' ]]; then
         echo "${tls_object}"
       elif [[ ${config[transport]} == 'shadowtls' ]]; then
@@ -1087,7 +1112,7 @@ function generate_engine_config {
       echo ',"transport": {"type": "grpc","service_name": "'"${config[service_path]}"'"}'
       fi 
       if [[ ${config[transport]} == ws ]]; then
-      echo ',"transport": {"type": "ws", "headers": {"Host": "'"${config[server]}"'"}, "path": "/'"${config[service_path]}"'"}'
+      echo ',"transport": {"type": "ws", "headers": {"Host": "'"${config[host_header]}"'"}, "path": "/'"${config[service_path]}"'"}'
       fi
       if [[ ${config[transport]} == tuic ]]; then
       echo ',"congestion_control": "bbr", "auth_timeout": "3s", "zero_rtt_handshake": false, "heartbeat": "10s"'
@@ -1271,11 +1296,14 @@ EOF
       },
       "streamSettings": {
         $([[ ${config[transport]} == 'grpc' ]] && echo '"grpcSettings": {"serviceName": "'"${config[service_path]}"'"},' || true)
-        $([[ ${config[transport]} == 'ws' ]] && echo '"wsSettings": {"headers": {"Host": "'"${config[server]}"'"}, "path": "/'"${config[service_path]}"'"},' || true)
+        $([[ ${config[transport]} == 'ws' ]] && echo '"wsSettings": {"headers": {"Host": "'"${config[host_header]}"'"}, "path": "/'"${config[service_path]}"'"},' || true)
         $([[ ${config[transport]} == 'http' ]] && echo '"httpSettings": {"host":["'"${config[server]}"'"], "path": "/'"${config[service_path]}"'"},' || true)
+        $([[ ${config[transport]} == 'xhttp' ]] && echo '"xhttpSettings": {"path": "/'"${config[service_path]}"'"},' || true)
         "network": "${config[transport]}",
         $(if [[ ${config[security]} == 'reality' ]]; then
           echo "${reality_object}"
+        elif [[ ${config[security]} == 'notls' ]]; then
+          echo '"security": "none"'
         elif [[ ${config[transport]} == 'http' || ${config[transport]} == 'tcp' ]]; then
           echo "${tls_object}"
         else
@@ -1370,7 +1398,7 @@ EOF
   fi
   if [[ -r ${config_path}/${config[core]}.patch ]]; then
     if ! jq empty ${config_path}/${config[core]}.patch; then
-      echo "${config[core]}.patch is not a valid json file. Fix it or remove it!"
+      echo "${config[core]}.patch не является валидным JSON файлом. Исправьте или удалите его!"
       exit 1
     fi
     temp_file=$(mktemp)
@@ -1382,7 +1410,7 @@ EOF
 function generate_config {
   generate_docker_compose
   generate_engine_config
-  if [[ ${config[security]} != "reality" && ${config[transport]} != 'shadowtls' ]]; then
+  if [[ ${config[security]} != "reality" && ${config[security]} != "notls" && ${config[transport]} != 'shadowtls' ]]; then
     mkdir -p "${config_path}/certificate"
     generate_haproxy_config
     if [[ ! -r "${path[server_pem]}" || ! -r "${path[server_crt]}" || ! -r "${path[server_key]}" ]]; then
@@ -1436,7 +1464,7 @@ function print_client_configuration {
     client_config="${client_config}${users[${username}]}"
     client_config="${client_config}@${config[server]}"
     client_config="${client_config}:${config[port]}"
-    client_config="${client_config}?security=$([[ ${config[security]} == 'reality' ]] && echo reality || echo tls)"
+    client_config="${client_config}?security=$([[ ${config[security]} == 'reality' ]] && echo reality || { [[ ${config[security]} == 'notls' ]] && echo none || echo tls; })"
     client_config="${client_config}&encryption=none"
     client_config="${client_config}&alpn=$([[ ${config[transport]} == 'ws' ]] && echo 'http/1.1' || echo 'h2,http/1.1')"
     client_config="${client_config}&headerType=none"
@@ -1447,18 +1475,21 @@ function print_client_configuration {
     client_config="${client_config}$([[ ${config[transport]} == 'ws' || ${config[transport]} == 'http' ]] && echo "&host=${config[server]}" || true)"
     client_config="${client_config}$([[ ${config[security]} == 'reality' ]] && echo "&pbk=${config[public_key]}" || true)"
     client_config="${client_config}$([[ ${config[security]} == 'reality' ]] && echo "&sid=${config[short_id]}" || true)"
-    client_config="${client_config}$([[ ${config[transport]} == 'ws' || ${config[transport]} == 'http' ]] && echo "&path=%2F${config[service_path]}" || true)"
+    client_config="${client_config}$([[ ${config[transport]} == 'ws' || ${config[transport]} == 'http' || ${config[transport]} == 'xhttp' ]] && echo "&path=%2F${config[service_path]}" || true)"
+    client_config="${client_config}$([[ ${config[transport]} == 'xhttp' ]] && echo "&host=${config[host_header]}" || true)"
+    client_config="${client_config}$([[ ${config[transport]} == 'ws' ]] && echo "&host=${config[host_header]}" || true)"
+    client_config="${client_config}$([[ ${config[transport]} == 'xhttp' ]] && echo '&mode=auto' || true)"
     client_config="${client_config}$([[ ${config[transport]} == 'grpc' ]] && echo '&mode=gun' || true)"
     client_config="${client_config}$([[ ${config[transport]} == 'grpc' ]] && echo "&serviceName=${config[service_path]}" || true)"
     client_config="${client_config}#${username}"
   fi
   echo ""
   echo "=================================================="
-  echo "Client configuration:"
+  echo "Конфигурация клиента:"
   echo ""
   echo "$client_config"
   echo ""
-  echo "Or you can scan the QR code:"
+  echo "Или вы можете отсканировать QR код:"
   echo ""
   qrencode -t ansiutf8 "${client_config}"
   ipv6=$(get_ipv6)
@@ -1469,12 +1500,12 @@ function print_client_configuration {
       client_config_ipv6=$(echo "$client_config" | sed "s/\"server\":\"${config[server]}\"/\"server\":\"${ipv6}\"/")
     fi
     echo ""
-    echo "==================IPv6 Config======================"
-    echo "Client configuration:"
+    echo "==================IPv6 Конфиг======================"
+    echo "Конфигурация клиента:"
     echo ""
     echo "$client_config_ipv6"
     echo ""
-    echo "Or you can scan the QR code:"
+    echo "Или вы можете отсканировать QR код:"
     echo ""
     qrencode -t ansiutf8 "${client_config_ipv6}"
   fi
@@ -1522,15 +1553,15 @@ function upgrade {
 function main_menu {
   local selection
   while true; do
-    selection=$(whiptail --clear --backtitle "$BACKTITLE" --title "Server Management" \
+    selection=$(whiptail --clear --backtitle "$BACKTITLE" --title "Управление сервером" \
       --menu "$MENU" $HEIGHT $WIDTH $CHOICE_HEIGHT \
-      --ok-button "Select" \
-      --cancel-button "Exit" \
-      "1" "Add New User" \
-      "2" "Delete User" \
-      "3" "View User" \
-      "4" "View Server Config" \
-      "5" "Configuration" \
+      --ok-button "Выбрать" \
+      --cancel-button "Выход" \
+      "1" "Добавить пользователя" \
+      "2" "Удалить пользователя" \
+      "3" "Просмотр пользователя" \
+      "4" "Конфигурация сервера" \
+      "5" "Настройки" \
       3>&1 1>&2 2>&3)
     if [[ $? -ne 0 ]]; then
       break
@@ -1562,19 +1593,19 @@ function add_user_menu {
     username=$(whiptail \
       --clear \
       --backtitle "$BACKTITLE" \
-      --title "Add New User" \
-      --inputbox "Enter username:" \
+      --title "Добавить пользователя" \
+      --inputbox "Введите имя пользователя:" \
       $HEIGHT $WIDTH \
       3>&1 1>&2 2>&3)
     if [[ $? -ne 0 ]]; then
       break
     fi
     if [[ ! $username =~ ${regex[username]} ]]; then
-      message_box "Invalid Username" "Username can only contains A-Z, a-z and 0-9"
+      message_box "Неверное имя" "Имя может содержать только A-Z, a-z и 0-9"
       continue
     fi
     if [[ -n ${users[$username]} ]]; then
-      message_box "Invalid Username" '"'"${username}"'" already exists.'
+      message_box "Неверное имя" '"'"${username}"'" уже существует.'
       continue
     fi
     users[$username]=$(cat /proc/sys/kernel/random/uuid)
@@ -1582,10 +1613,10 @@ function add_user_menu {
     whiptail \
       --clear \
       --backtitle "$BACKTITLE" \
-      --title "Add New User" \
-      --yes-button "View User" \
-      --no-button "Return" \
-      --yesno 'User "'"${username}"'" has been created.' \
+      --title "Добавить пользователя" \
+      --yes-button "Просмотр" \
+      --no-button "Назад" \
+      --yesno 'Пользователь "'"${username}"'" создан.' \
       $HEIGHT $WIDTH \
       3>&1 1>&2 2>&3
     if [[ $? -ne 0 ]]; then
@@ -1598,19 +1629,19 @@ function add_user_menu {
 function delete_user_menu {
   local username
   while true; do
-    username=$(list_users_menu "Delete User")
+    username=$(list_users_menu "Удалить пользователя")
     if [[ $? -ne 0 ]]; then
       return 0
     fi
     if [[ ${#users[@]} -eq 1 ]]; then
-      message_box "Delete User" "You cannot delete the only user.\nAt least one user is needed.\nCreate a new user, then delete this one."
+      message_box "Удаление пользователя" "Нельзя удалить единственного пользователя.\nНужен хотя бы один пользователь.\nСоздайте нового, затем удалите этого."
       continue
     fi
     whiptail \
       --clear \
       --backtitle "$BACKTITLE" \
-      --title "Delete User" \
-      --yesno "Are you sure you want to delete $username?" \
+      --title "Удалить пользователя" \
+      --yesno "Вы уверены, что хотите удалить $username?" \
       $HEIGHT $WIDTH \
       3>&1 1>&2 2>&3
     if [[ $? -ne 0 ]]; then
@@ -1618,7 +1649,7 @@ function delete_user_menu {
     fi
     unset users["${username}"]
     update_users_file
-    message_box "Delete User" 'User "'"${username}"'" has been deleted.'
+    message_box "Удаление пользователя" 'Пользователь "'"${username}"'" удален.'
   done
 }
 
@@ -1629,70 +1660,71 @@ function view_user_menu {
     if [[ $# -gt 0 ]]; then
       username=$1
     else
-      username=$(list_users_menu "View User")
+      username=$(list_users_menu "Просмотр пользователя")
       if [[ $? -ne 0 ]]; then
         return 0
       fi
     fi
     if [[ ${config[transport]} == 'tuic' ]]; then
       user_config=$(echo "
-Protocol: tuic
-Remarks: ${username}
-Address: ${config[server]}
-Port: ${config[port]}
+Протокол: tuic
+Примечание: ${username}
+Адрес: ${config[server]}
+Порт: ${config[port]}
 UUID: ${users[$username]}
-Password: $(echo -n "${username}${users[${username}]}" | sha256sum | cut -d ' ' -f 1 | head -c 16)
-UDP Relay Mode: quic
-Congestion Control: bbr
+Пароль: $(echo -n "${username}${users[${username}]}" | sha256sum | cut -d ' ' -f 1 | head -c 16)
+Режим реле UDP: quic
+Контроль перегрузки: bbr
       " | tr -s '\n')
     elif [[ ${config[transport]} == 'hysteria2' ]]; then
       user_config=$(echo "
-Protocol: hysteria2
-Remarks: ${username}
-Address: ${config[server]}
-Port: ${config[port]}
-Password: $(echo -n "${username}${users[${username}]}" | sha256sum | cut -d ' ' -f 1 | head -c 16)
-OBFS Type: salamander
-OBFS Password: ${config[service_path]}
+Протокол: hysteria2
+Примечание: ${username}
+Адрес: ${config[server]}
+Порт: ${config[port]}
+Пароль: $(echo -n "${username}${users[${username}]}" | sha256sum | cut -d ' ' -f 1 | head -c 16)
+Тип OBFS: salamander
+Пароль OBFS: ${config[service_path]}
       " | tr -s '\n')
     elif [[ ${config[transport]} == 'shadowtls' ]]; then
       user_config=$(echo "
-=== First item of the chain proxy ===
-Protocol: shadowtls
-Remarks: ${username}-shadowtls
-Address: ${config[server]}
-Port: ${config[port]}
-Password: ${users[$username]}
-Protocol Version: 3
+=== Первый элемент цепочки прокси ===
+Протокол: shadowtls
+Примечание: ${username}-shadowtls
+Адрес: ${config[server]}
+Порт: ${config[port]}
+Пароль: ${users[$username]}
+Версия протокола: 3
 SNI: ${config[domain]%%:*}
-Fingerprint: chrome
-=== Second item of the chain proxy ===
-Protocol: shadowsocks
-Remarks: ${username}-shadowsocks
-Address: 127.0.0.1
-Port: 1080
-Password: ${users[$username]}
-Encryption Method: chacha20-ietf-poly1305
-UDP over TCP: true
+Отпечаток: chrome
+=== Второй элемент цепочки прокси ===
+Протокол: shadowsocks
+Примечание: ${username}-shadowsocks
+Адрес: 127.0.0.1
+Порт: 1080
+Пароль: ${users[$username]}
+Метод шифрования: chacha20-ietf-poly1305
+UDP через TCP: true
 
       " | tr -s '\n')
     else
       user_config=$(echo "
-Protocol: vless
-Remarks: ${username}
-Address: ${config[server]}
-Port: ${config[port]}
+Протокол: vless
+Примечание: ${username}
+Адрес: ${config[server]}
+Порт: ${config[port]}
 ID: ${users[$username]}
 Flow: $([[ ${config[transport]} == 'tcp' ]] && echo 'xtls-rprx-vision' || true)
-Network: ${config[transport]}
-$([[ ${config[transport]} == 'ws' || ${config[transport]} == 'http' ]] && echo "Host Header: ${config[server]}" || true)
-$([[ ${config[transport]} == 'ws' || ${config[transport]} == 'http' ]] && echo "Path: /${config[service_path]}" || true)
-$([[ ${config[transport]} == 'grpc' ]] && echo 'gRPC mode: gun' || true)
+Сеть: ${config[transport]}
+$([[ ${config[transport]} == 'ws' || ${config[transport]} == 'http' ]] && echo "Заголовок Host: ${config[server]}" || true)
+$([[ ${config[transport]} == 'ws' || ${config[transport]} == 'http' || ${config[transport]} == 'xhttp' ]] && echo "Путь: /${config[service_path]}" || true)
+$([[ ${config[transport]} == 'xhttp' ]] && echo "Режим: auto" || true)
+$([[ ${config[transport]} == 'grpc' ]] && echo 'Режим gRPC: gun' || true)
 $([[ ${config[transport]} == 'grpc' ]] && echo 'gRPC serviceName: '"${config[service_path]}" || true)
-TLS: $([[ ${config[security]} == 'reality' ]] && echo 'reality' || echo 'tls')
+TLS: $([[ ${config[security]} == 'reality' ]] && echo 'reality' || { [[ ${config[security]} == 'notls' ]] && echo 'none' || echo 'tls'; })
 SNI: ${config[domain]%%:*}
 ALPN: $([[ ${config[transport]} == 'ws' ]] && echo 'http/1.1' || echo 'h2,http/1.1')
-Fingerprint: chrome
+Отпечаток: chrome
 $([[ ${config[security]} == 'reality' ]] && echo "PublicKey: ${config[public_key]}" || true)
 $([[ ${config[security]} == 'reality' ]] && echo "ShortId: ${config[short_id]}" || true)
       " | tr -s '\n')
@@ -1700,9 +1732,9 @@ $([[ ${config[security]} == 'reality' ]] && echo "ShortId: ${config[short_id]}" 
     whiptail \
       --clear \
       --backtitle "$BACKTITLE" \
-      --title "${username} details" \
-      --yes-button "View QR" \
-      --no-button "Return" \
+      --title "Детали ${username}" \
+      --yes-button "QR-код" \
+      --no-button "Назад" \
       --yesno "${user_config}" \
       $HEIGHT $WIDTH \
       3>&1 1>&2 2>&3
@@ -1710,7 +1742,7 @@ $([[ ${config[security]} == 'reality' ]] && echo "ShortId: ${config[short_id]}" 
       clear
       print_client_configuration "${username}"
       echo
-      echo "Press Enter to return ..."
+      echo "Нажмите Enter чтобы вернуться..."
       read
       clear
     fi
@@ -1726,7 +1758,7 @@ function list_users_menu {
   local selection
   options=$(dict_expander users)
   selection=$(whiptail --clear --noitem --backtitle "$BACKTITLE" --title "$title" \
-    --menu "Select the user" $HEIGHT $WIDTH $CHOICE_HEIGHT $options \
+    --menu "Выберите пользователя" $HEIGHT $WIDTH $CHOICE_HEIGHT $options \
     3>&1 1>&2 2>&3)
   if [[ $? -ne 0 ]]; then
     return 1
@@ -1736,33 +1768,35 @@ function list_users_menu {
 
 function show_server_config {
   local server_config
-  server_config="Core: ${config[core]}"
-  server_config=$server_config$'\n'"Server Address: ${config[server]}"
-  server_config=$server_config$'\n'"Domain SNI: ${config[domain]}"
-  server_config=$server_config$'\n'"Port: ${config[port]}"
-  server_config=$server_config$'\n'"Transport: ${config[transport]}"
-  server_config=$server_config$'\n'"Security: ${config[security]}"
-  server_config=$server_config$'\n'"Safenet: ${config[safenet]}"
+  server_config="Ядро: ${config[core]}"
+  server_config=$server_config$'\n'"Адрес сервера: ${config[server]}"
+  server_config=$server_config$'\n'"SNI Домен: ${config[domain]}"
+  server_config=$server_config$'\n'"Порт: ${config[port]}"
+  server_config=$server_config$'\n'"Транспорт: ${config[transport]}"
+  server_config=$server_config$'\n'"Путь (Path): /${config[service_path]}"
+  server_config=$server_config$'\n'"Заголовок Host: ${config[host_header]}"
+  server_config=$server_config$'\n'"Безопасность: ${config[security]}"
+  server_config=$server_config$'\n'"SafeNet: ${config[safenet]}"
   server_config=$server_config$'\n'"WARP: ${config[warp]}"
-  server_config=$server_config$'\n'"WARP License: ${config[warp_license]}"
-  server_config=$server_config$'\n'"Telegram Bot: ${config[tgbot]}"
-  server_config=$server_config$'\n'"Telegram Bot Token: ${config[tgbot_token]}"
-  server_config=$server_config$'\n'"Telegram Bot Admins: ${config[tgbot_admins]}"
+  server_config=$server_config$'\n'"Лицензия WARP: ${config[warp_license]}"
+  server_config=$server_config$'\n'"Telegram Бот: ${config[tgbot]}"
+  server_config=$server_config$'\n'"Токен Telegram Бота: ${config[tgbot_token]}"
+  server_config=$server_config$'\n'"Админы Telegram Бота: ${config[tgbot_admins]}"
   echo "${server_config}"
 }
 
 function view_config_menu {
   local server_config
   server_config=$(show_server_config)
-  message_box "Server Configuration" "${server_config}"
+  message_box "Конфигурация сервера" "${server_config}"
 }
 
 function restart_menu {
   whiptail \
     --clear \
     --backtitle "$BACKTITLE" \
-    --title "Restart Services" \
-    --yesno "Are you sure to restart services?" \
+    --title "Перезагрузка служб" \
+    --yesno "Вы уверены, что хотите перезагрузить службы?" \
     $HEIGHT $WIDTH \
     3>&1 1>&2 2>&3
   if [[ $? -ne 0 ]]; then
@@ -1778,8 +1812,8 @@ function regenerate_menu {
   whiptail \
     --clear \
     --backtitle "$BACKTITLE" \
-    --title "Regenrate keys" \
-    --yesno "Are you sure to regenerate keys?" \
+    --title "Перегенерация ключей" \
+    --yesno "Вы уверены, что хотите перегенерировать ключи?" \
     $HEIGHT $WIDTH \
     3>&1 1>&2 2>&3
   if [[ $? -ne 0 ]]; then
@@ -1790,15 +1824,15 @@ function regenerate_menu {
   config[private_key]=${config_file[private_key]}
   config[short_id]=${config_file[short_id]}
   update_config_file
-  message_box "Regenerate keys" "All keys has been regenerated."
+  message_box "Перегенерация ключей" "Все ключи были перегенерированы."
 }
 
 function restore_defaults_menu {
   whiptail \
     --clear \
     --backtitle "$BACKTITLE" \
-    --title "Restore Default Config" \
-    --yesno "Are you sure to restore default configuration?" \
+    --title "Сброс настроек" \
+    --yesno "Вы уверены, что хотите сбросить настройки по умолчанию?" \
     $HEIGHT $WIDTH \
     3>&1 1>&2 2>&3
   if [[ $? -ne 0 ]]; then
@@ -1806,28 +1840,30 @@ function restore_defaults_menu {
   fi
   restore_defaults
   update_config_file
-  message_box "Restore Default Config" "All configurations has been restored to their defaults."
+  message_box "Сброс настроек" "Все настройки сброшены на стандартные."
 }
 
 function configuration_menu {
   local selection
   while true; do
-    selection=$(whiptail --clear --backtitle "$BACKTITLE" --title "Configuration" \
-      --menu "Select an option:" $HEIGHT $WIDTH $CHOICE_HEIGHT \
-      "1" "Core" \
-      "2" "Server Address" \
-      "3" "Transport" \
-      "4" "SNI Domain" \
-      "5" "Security" \
-      "6" "Port" \
-      "7" "Safe Internet" \
-      "8" "WARP" \
-      "9" "Telegram Bot" \
-      "10" "Restart Services" \
-      "11" "Regenerate Keys" \
-      "12" "Restore Defaults" \
-      "13" "Create Backup" \
-      "14" "Restore Backup" \
+    selection=$(whiptail --clear --backtitle "$BACKTITLE" --title "Настройки" \
+      --menu "Выберите опцию:" $HEIGHT $WIDTH $CHOICE_HEIGHT \
+      "1" "Ядро" \
+      "2" "Адрес сервера" \
+      "3" "Порт" \
+      "4" "Транспорт" \
+      "5" "Безопасность" \
+      "6" "SNI Домен" \
+      "7" "Путь (Path)" \
+      "8" "Узел (Host)" \
+      "9" "WARP" \
+      "10" "Безопасный интернет" \
+      "11" "Telegram Бот" \
+      "12" "Перезагрузка служб" \
+      "13" "Перегенерация ключей" \
+      "14" "Сброс настроек" \
+      "15" "Создать бэкап" \
+      "16" "Восстановить бэкап" \
       3>&1 1>&2 2>&3)
     if [[ $? -ne 0 ]]; then
       break
@@ -1840,39 +1876,45 @@ function configuration_menu {
         config_server_menu
         ;;
       3 )
-        config_transport_menu
+        config_port_menu
         ;;
       4 )
-        config_sni_domain_menu
+        config_transport_menu
         ;;
       5 )
         config_security_menu
         ;;
       6 )
-        config_port_menu
+        config_sni_domain_menu
         ;;
       7 )
-        config_safenet_menu
+        config_path_menu
         ;;
       8 )
-        config_warp_menu
+        config_host_menu
         ;;
       9 )
-        config_tgbot_menu
+        config_warp_menu
         ;;
       10 )
-        restart_menu
+        config_safenet_menu
         ;;
       11 )
-        regenerate_menu
+        config_tgbot_menu
         ;;
       12 )
-        restore_defaults_menu
+        restart_menu
         ;;
       13 )
-        backup_menu
+        regenerate_menu
         ;;
       14 )
+        restore_defaults_menu
+        ;;
+      15 )
+        backup_menu
+        ;;
+      16 )
         restore_backup_menu
         ;;
     esac
@@ -1882,8 +1924,8 @@ function configuration_menu {
 function config_core_menu {
   local core
   while true; do
-    core=$(whiptail --clear --backtitle "$BACKTITLE" --title "Core" \
-      --radiolist --noitem "Select a core engine:" $HEIGHT $WIDTH $CHOICE_HEIGHT \
+    core=$(whiptail --clear --backtitle "$BACKTITLE" --title "Ядро" \
+      --radiolist --noitem "Выберите ядро:" $HEIGHT $WIDTH $CHOICE_HEIGHT \
       "xray" "$([[ "${config[core]}" == 'xray' ]] && echo 'on' || echo 'off')" \
       "sing-box" "$([[ "${config[core]}" == 'sing-box' ]] && echo 'on' || echo 'off')" \
       3>&1 1>&2 2>&3)
@@ -1891,15 +1933,19 @@ function config_core_menu {
       break
     fi
     if [[ ${core} == 'xray' && ${config[transport]} == 'tuic' ]]; then
-      message_box 'Invalid Configuration' 'You cannot use "xray" core with "tuic" transport. Change core to "sing-box" or use other transports'
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать ядро "xray" с транспортом "tuic". Смените ядро на "sing-box" или используйте другой транспорт.'
       continue
     fi
     if [[ ${core} == 'xray' && ${config[transport]} == 'hysteria2' ]]; then
-      message_box 'Invalid Configuration' 'You cannot use "xray" core with "hysteria2" transport. Change core to "sing-box" or use other transports'
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать ядро "xray" с транспортом "hysteria2". Смените ядро на "sing-box" или используйте другой транспорт.'
       continue
     fi
     if [[ ${core} == 'xray' && ${config[transport]} == 'shadowtls' ]]; then
-      message_box 'Invalid Configuration' 'You cannot use "xray" core with "shadowtls" transport. Change core to "sing-box" or use other transports'
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать ядро "xray" с транспортом "shadowtls". Смените ядро на "sing-box" или используйте другой транспорт.'
+      continue
+    fi
+    if [[ ${core} != 'xray' && ${config[transport]} == 'xhttp' ]]; then
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "xhttp" с ядром "sing-box". Смените ядро на "xray" или используйте другой транспорт.'
       continue
     fi
     config[core]=$core
@@ -1911,21 +1957,21 @@ function config_core_menu {
 function config_server_menu {
   local server
   while true; do
-    server=$(whiptail --clear --backtitle "$BACKTITLE" --title "Server Address" \
-      --inputbox "Enter Server IP or Domain:" $HEIGHT $WIDTH "${config["server"]}" \
+    server=$(whiptail --clear --backtitle "$BACKTITLE" --title "Адрес сервера" \
+      --inputbox "Введите IP или домен сервера:" $HEIGHT $WIDTH "${config["server"]}" \
       3>&1 1>&2 2>&3)
     if [[ $? -ne 0 ]]; then
       break
     fi
     if [[ ! ${server} =~ ${regex[domain]} && ${config[security]} == 'letsencrypt' ]]; then
-      message_box 'Invalid Configuration' 'You have to assign a valid domain to server if you want to use "letsencrypt" certificate.'
+      message_box 'Ошибка конфигурации' 'Вы должны назначить валидный домен серверу, если хотите использовать сертификат "letsencrypt".'
       continue
     fi
     if [[ -z ${server} ]]; then
       server="${defaults[server]}"
     fi
     config[server]="${server}"
-    if [[ ${config[security]} != 'reality' && ${config[transport]} != 'shadowtls' ]]; then
+    if [[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[transport]} != 'shadowtls' ]]; then
       config[domain]="${server}"
     fi
     update_config_file
@@ -1936,10 +1982,11 @@ function config_server_menu {
 function config_transport_menu {
   local transport
   while true; do
-    transport=$(whiptail --clear --backtitle "$BACKTITLE" --title "Transport" \
-      --radiolist --noitem "Select a transport protocol:" $HEIGHT $WIDTH $CHOICE_HEIGHT \
+    transport=$(whiptail --clear --backtitle "$BACKTITLE" --title "Транспорт" \
+      --radiolist --noitem "Выберите транспортный протокол:" $HEIGHT $WIDTH $CHOICE_HEIGHT \
       "tcp" "$([[ "${config[transport]}" == 'tcp' ]] && echo 'on' || echo 'off')" \
       "http" "$([[ "${config[transport]}" == 'http' ]] && echo 'on' || echo 'off')" \
+      "xhttp" "$([[ "${config[transport]}" == 'xhttp' ]] && echo 'on' || echo 'off')" \
       "grpc" "$([[ "${config[transport]}" == 'grpc' ]] && echo 'on' || echo 'off')" \
       "ws" "$([[ "${config[transport]}" == 'ws' ]] && echo 'on' || echo 'off')" \
       "tuic" "$([[ "${config[transport]}" == 'tuic' ]] && echo 'on' || echo 'off')" \
@@ -1950,27 +1997,31 @@ function config_transport_menu {
       break
     fi
     if [[ ${transport} == 'ws' && ${config[security]} == 'reality' ]]; then
-      message_box 'Invalid Configuration' 'You cannot use "ws" transport with "reality" TLS certificate. Use other transports or change TLS certifcate to "letsencrypt" or "selfsigned"'
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "ws" с сертификатом "reality". Используйте другой транспорт или смените сертификат на "letsencrypt", "selfsigned" или "notls".'
+      continue
+    fi
+    if [[ ${transport} == 'xhttp' && ${config[core]} != 'xray' ]]; then
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "xhttp" с ядром "sing-box". Используйте ядро "xray".'
       continue
     fi
     if [[ ${transport} == 'tuic' && ${config[security]} == 'reality' ]]; then
-      message_box 'Invalid Configuration' 'You cannot use "tuic" transport with "reality" TLS certificate. Use other transports or change TLS certifcate to "letsencrypt" or "selfsigned"'
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "tuic" с сертификатом "reality". Используйте другой транспорт или смените сертификат на "letsencrypt" или "selfsigned"'
       continue
     fi
     if [[ ${transport} == 'tuic' && ${config[core]} == 'xray' ]]; then
-      message_box 'Invalid Configuration' 'You cannot use "tuic" transport with "xray" core. Use other transports or change core to "sing-box"'
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "tuic" с ядром "xray". Используйте другой транспорт или смените ядро на "sing-box"'
       continue
     fi
     if [[ ${transport} == 'hysteria2' && ${config[security]} == 'reality' ]]; then
-      message_box 'Invalid Configuration' 'You cannot use "hysteria2" transport with "reality" TLS certificate. Use other transports or change TLS certifcate to "letsencrypt" or "selfsigned"'
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "hysteria2" с сертификатом "reality". Используйте другой транспорт или смените сертификат на "letsencrypt" или "selfsigned"'
       continue
     fi
     if [[ ${transport} == 'hysteria2' && ${config[core]} == 'xray' ]]; then
-      message_box 'Invalid Configuration' 'You cannot use "hysteria2" transport with "xray" core. Use other transports or change core to "sing-box"'
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "hysteria2" с ядром "xray". Используйте другой транспорт или смените ядро на "sing-box"'
       continue
     fi
     if [[ ${transport} == 'shadowtls' && ${config[core]} == 'xray' ]]; then
-      message_box 'Invalid Configuration' 'You cannot use "shadowtls" transport with "xray" core. Use other transports or change core to "sing-box"'
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "shadowtls" с ядром "xray". Используйте другой транспорт или смените ядро на "sing-box"'
       continue
     fi
     config[transport]=$transport
@@ -1982,14 +2033,14 @@ function config_transport_menu {
 function config_sni_domain_menu {
   local sni_domain
   while true; do
-    sni_domain=$(whiptail --clear --backtitle "$BACKTITLE" --title "SNI Domain" \
-      --inputbox "Enter SNI domain:" $HEIGHT $WIDTH "${config[domain]}" \
+    sni_domain=$(whiptail --clear --backtitle "$BACKTITLE" --title "SNI Домен" \
+      --inputbox "Введите SNI домен:" $HEIGHT $WIDTH "${config[domain]}" \
       3>&1 1>&2 2>&3)
     if [[ $? -ne 0 ]]; then
       break
     fi
     if [[ ! $sni_domain =~ ${regex[domain_port]} ]]; then
-      message_box "Invalid Domain" '"'"${sni_domain}"'" in not a valid domain.'
+      message_box "Неверный домен" '"'"${sni_domain}"'" не является валидным доменом.'
       continue
     fi
     config[domain]=$sni_domain
@@ -2002,29 +2053,30 @@ function config_security_menu {
   local security
   local free_80=true
   while true; do
-    security=$(whiptail --clear --backtitle "$BACKTITLE" --title "Security Type" \
-      --radiolist --noitem "Select a security type:" $HEIGHT $WIDTH $CHOICE_HEIGHT \
+    security=$(whiptail --clear --backtitle "$BACKTITLE" --title "Тип безопасности" \
+      --radiolist --noitem "Выберите тип безопасности:" $HEIGHT $WIDTH $CHOICE_HEIGHT \
       "reality" "$([[ "${config[security]}" == 'reality' ]] && echo 'on' || echo 'off')" \
       "letsencrypt" "$([[ "${config[security]}" == 'letsencrypt' ]] && echo 'on' || echo 'off')" \
       "selfsigned" "$([[ "${config[security]}" == 'selfsigned' ]] && echo 'on' || echo 'off')" \
+      "notls" "$([[ "${config[security]}" == 'notls' ]] && echo 'on' || echo 'off')" \
       3>&1 1>&2 2>&3)
     if [[ $? -ne 0 ]]; then
       break
     fi
     if [[ ! ${config[server]} =~ ${regex[domain]} && ${security} == 'letsencrypt' ]]; then
-      message_box 'Invalid Configuration' 'You have to assign a valid domain to server if you want to use "letsencrypt" as security type'
+      message_box 'Ошибка конфигурации' 'Вы должны назначить валидный домен серверу, если хотите использовать "letsencrypt" в качестве типа безопасности.'
       continue
     fi
     if [[ ${config[transport]} == 'ws' && ${security} == 'reality' ]]; then
-      message_box 'Invalid Configuration' 'You cannot use "reality" TLS certificate with "ws" transport protocol. Change TLS certifcate to "letsencrypt" or "selfsigned" or use other transport protocols'
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать сертификат "reality" с транспортом "ws". Смените сертификат на "letsencrypt", "selfsigned" или "notls".'
       continue
     fi
     if [[ ${config[transport]} == 'tuic' && ${security} == 'reality' ]]; then
-      message_box 'Invalid Configuration' 'You cannot use "reality" TLS certificate with "tuic" transport. Change TLS certifcate to "letsencrypt" or "selfsigned" or use other transports'
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать сертификат "reality" с транспортом "tuic". Смените сертификат на "letsencrypt", "selfsigned" или используйте другой транспорт.'
       continue
     fi
     if [[ ${config[transport]} == 'hysteria2' && ${security} == 'reality' ]]; then
-      message_box 'Invalid Configuration' 'You cannot use "reality" TLS certificate with "hysteria2" transport. Change TLS certifcate to "letsencrypt" or "selfsigned" or use other transports'
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать сертификат "reality" с транспортом "hysteria2". Смените сертификат на "letsencrypt", "selfsigned" или используйте другой транспорт.'
       continue
     fi
     if [[ ${security} == 'letsencrypt' && ${config[port]} -ne 443 ]]; then
@@ -2038,14 +2090,14 @@ function config_security_menu {
         done
       fi
       if [[ ${free_80} != 'true' ]]; then
-        message_box 'Port 80 must be free if you want to use "letsencrypt" as the security option.'
+        message_box 'Порт 80 должен быть свободен, если вы хотите использовать "letsencrypt".'
         continue
       fi
     fi
-    if [[ ${security} != 'reality' && ${config[transport]} != 'shadowtls' ]]; then
+    if [[ ${security} != 'reality' && ${security} != 'notls' && ${config[transport]} != 'shadowtls' ]]; then
       config[domain]="${config[server]}"
     fi
-    if [[ ${security} == 'reality' || ${config[transport]} == 'shadowtls' ]]; then
+    if [[ ${security} == 'reality' || ${security} == 'notls' || ${config[transport]} == 'shadowtls' ]]; then
       config[domain]="${defaults[domain]}"
     fi
     config[security]="${security}"
@@ -2057,18 +2109,18 @@ function config_security_menu {
 function config_port_menu {
   local port
   while true; do
-    port=$(whiptail --clear --backtitle "$BACKTITLE" --title "Port" \
-      --inputbox "Enter port number:" $HEIGHT $WIDTH "${config[port]}" \
+    port=$(whiptail --clear --backtitle "$BACKTITLE" --title "Порт" \
+      --inputbox "Введите номер порта:" $HEIGHT $WIDTH "${config[port]}" \
       3>&1 1>&2 2>&3)
     if [[ $? -ne 0 ]]; then
       break
     fi
     if [[ ! $port =~ ${regex[port]} ]]; then
-      message_box "Invalid Port" "Port must be an integer"
+      message_box "Неверный порт" "Порт должен быть числом"
       continue
     fi
     if ((port < 1 || port > 65535)); then
-      message_box "Invalid Port" "Port must be between 1 to 65535"
+      message_box "Неверный порт" "Порт должен быть от 1 до 65535"
       continue
     fi
     config[port]=$port
@@ -2077,17 +2129,47 @@ function config_port_menu {
   done
 }
 
+function config_path_menu {
+  local path
+  while true; do
+    path=$(whiptail --clear --backtitle "$BACKTITLE" --title "Путь (Path)" \
+      --inputbox "Введите путь (без начального слеша /):" $HEIGHT $WIDTH "${config[service_path]}" \
+      3>&1 1>&2 2>&3)
+    if [[ $? -ne 0 ]]; then
+      break
+    fi
+    config[service_path]=$path
+    update_config_file
+    break
+  done
+}
+
+function config_host_menu {
+  local host
+  while true; do
+    host=$(whiptail --clear --backtitle "$BACKTITLE" --title "Узел (Host)" \
+      --inputbox "Введите заголовок Host:" $HEIGHT $WIDTH "${config[host_header]}" \
+      3>&1 1>&2 2>&3)
+    if [[ $? -ne 0 ]]; then
+      break
+    fi
+    config[host_header]=$host
+    update_config_file
+    break
+  done
+}
+
 function config_safenet_menu {
   local safenet
-  safenet=$(whiptail --clear --backtitle "$BACKTITLE" --title "Safe Internet" \
-    --radiolist --noitem "Enable blocking malware and adult content" $HEIGHT $WIDTH $CHOICE_HEIGHT \
-    "Enable" "$([[ "${config[safenet]}" == 'ON' ]] && echo 'on' || echo 'off')" \
-    "Disable" "$([[ "${config[safenet]}" == 'OFF' ]] && echo 'on' || echo 'off')" \
+  safenet=$(whiptail --clear --backtitle "$BACKTITLE" --title "Безопасный интернет" \
+    --radiolist --noitem "Блокировка вирусов и взрослого контента" $HEIGHT $WIDTH $CHOICE_HEIGHT \
+    "Включить" "$([[ "${config[safenet]}" == 'ON' ]] && echo 'on' || echo 'off')" \
+    "Выключить" "$([[ "${config[safenet]}" == 'OFF' ]] && echo 'on' || echo 'off')" \
     3>&1 1>&2 2>&3)
   if [[ $? -ne 0 ]]; then
     return
   fi
-  config[safenet]=$([[ $safenet == 'Enable' ]] && echo ON || echo OFF)
+  config[safenet]=$([[ $safenet == 'Включить' ]] && echo ON || echo OFF)
   update_config_file
 }
 
@@ -2101,14 +2183,14 @@ function config_warp_menu {
   local old_warp_license=${config[warp_license]}
   while true; do
     warp=$(whiptail --clear --backtitle "$BACKTITLE" --title "WARP" \
-      --radiolist --noitem "Enable WARP:" $HEIGHT $WIDTH $CHOICE_HEIGHT \
-      "Enable" "$([[ "${config[warp]}" == 'ON' ]] && echo 'on' || echo 'off')" \
-      "Disable" "$([[ "${config[warp]}" == 'OFF' ]] && echo 'on' || echo 'off')" \
+      --radiolist --noitem "Включить WARP:" $HEIGHT $WIDTH $CHOICE_HEIGHT \
+      "Включить" "$([[ "${config[warp]}" == 'ON' ]] && echo 'on' || echo 'off')" \
+      "Выключить" "$([[ "${config[warp]}" == 'OFF' ]] && echo 'on' || echo 'off')" \
       3>&1 1>&2 2>&3)
     if [[ $? -ne 0 ]]; then
       break
     fi
-    if [[ $warp == 'Disable' ]]; then
+    if [[ $warp == 'Выключить' ]]; then
       config[warp]=OFF
       if [[ -n ${config[warp_id]} && -n ${config[warp_token]} ]]; then
         warp_delete_account "${config[warp_id]}" "${config[warp_token]}"
@@ -2127,20 +2209,20 @@ function config_warp_menu {
       error=$(< "${temp_file}")
       rm -f "${temp_file}"
       if [[ ${exit_code} -ne 0 ]]; then
-        message_box "WARP account creation error" "${error}"
+        message_box "Ошибка создания аккаунта WARP" "${error}"
         continue
       fi
     fi
     config[warp]=ON
     while true; do
-      warp_license=$(whiptail --clear --backtitle "$BACKTITLE" --title "WARP+ License" \
-        --inputbox "Enter WARP+ License:" $HEIGHT $WIDTH "${config[warp_license]}" \
+      warp_license=$(whiptail --clear --backtitle "$BACKTITLE" --title "WARP+ Лицензия" \
+        --inputbox "Введите лицензию WARP+:" $HEIGHT $WIDTH "${config[warp_license]}" \
         3>&1 1>&2 2>&3)
       if [[ $? -ne 0 ]]; then
         break
       fi
       if [[ ! $warp_license =~ ${regex[warp_license]} ]]; then
-        message_box "Invalid Input" "Invalid WARP+ License"
+        message_box "Неверный ввод" "Неверная лицензия WARP+"
         continue
       fi
       temp_file=$(mktemp)
@@ -2149,7 +2231,7 @@ function config_warp_menu {
       error=$(< "${temp_file}")
       rm -f "${temp_file}"
       if [[ ${exit_code} -ne 0 ]]; then
-        message_box "WARP license error" "${error}"
+        message_box "Ошибка лицензии WARP" "${error}"
         continue
       fi
       return
@@ -2167,45 +2249,45 @@ function config_tgbot_menu {
   local old_tgbot_token=${config[tgbot_token]}
   local old_tgbot_admins=${config[tgbot_admins]}
   while true; do
-    tgbot=$(whiptail --clear --backtitle "$BACKTITLE" --title "Enable Telegram Bot" \
-      --radiolist --noitem "Enable Telegram Bot:" $HEIGHT $WIDTH $CHOICE_HEIGHT \
-      "Enable" "$([[ "${config[tgbot]}" == 'ON' ]] && echo 'on' || echo 'off')" \
-      "Disable" "$([[ "${config[tgbot]}" == 'OFF' ]] && echo 'on' || echo 'off')" \
+    tgbot=$(whiptail --clear --backtitle "$BACKTITLE" --title "Включить Telegram Бота" \
+      --radiolist --noitem "Включить Telegram Бота:" $HEIGHT $WIDTH $CHOICE_HEIGHT \
+      "Включить" "$([[ "${config[tgbot]}" == 'ON' ]] && echo 'on' || echo 'off')" \
+      "Выключить" "$([[ "${config[tgbot]}" == 'OFF' ]] && echo 'on' || echo 'off')" \
       3>&1 1>&2 2>&3)
     if [[ $? -ne 0 ]]; then
       break
     fi
-    if [[ $tgbot == 'Disable' ]]; then
+    if [[ $tgbot == 'Выключить' ]]; then
       config[tgbot]=OFF
       update_config_file
       return
     fi
     config[tgbot]=ON
     while true; do
-      tgbot_token=$(whiptail --clear --backtitle "$BACKTITLE" --title "Telegram Bot Token" \
-        --inputbox "Enter Telegram Bot Token:" $HEIGHT $WIDTH "${config[tgbot_token]}" \
+      tgbot_token=$(whiptail --clear --backtitle "$BACKTITLE" --title "Токен Telegram Бота" \
+        --inputbox "Введите Токен Telegram Бота:" $HEIGHT $WIDTH "${config[tgbot_token]}" \
         3>&1 1>&2 2>&3)
       if [[ $? -ne 0 ]]; then
         break
       fi
       if [[ ! $tgbot_token =~ ${regex[tgbot_token]} ]]; then
-        message_box "Invalid Input" "Invalid Telegram Bot Token"
+        message_box "Неверный ввод" "Неверный Токен Telegram Бота"
         continue
       fi 
       if ! curl -sSfL -m 3 "https://api.telegram.org/bot${tgbot_token}/getMe" >/dev/null 2>&1; then
-        message_box "Invalid Input" "Telegram Bot Token is incorrect. Check it again."
+        message_box "Неверный ввод" "Токен Telegram Бота некорректен. Проверьте его."
         continue
       fi
       config[tgbot_token]=$tgbot_token
       while true; do
-        tgbot_admins=$(whiptail --clear --backtitle "$BACKTITLE" --title "Telegram Bot Admins" \
-          --inputbox "Enter Telegram Bot Admins (Seperate multiple admins by comma ',' without leading '@'):" $HEIGHT $WIDTH "${config[tgbot_admins]}" \
+        tgbot_admins=$(whiptail --clear --backtitle "$BACKTITLE" --title "Админы Telegram Бота" \
+          --inputbox "Введите Админов Telegram Бота (Разделяйте нескольких запятой ',' без символа '@'):" $HEIGHT $WIDTH "${config[tgbot_admins]}" \
           3>&1 1>&2 2>&3)
         if [[ $? -ne 0 ]]; then
           break
         fi
         if [[ ! $tgbot_admins =~ ${regex[tgbot_admins]} || $tgbot_admins =~ .+_$ || $tgbot_admins =~ .+_,.+ ]]; then
-          message_box "Invalid Input" "Invalid Username\nThe usernames must separated by ',' without leading '@' character or any extra space."
+          message_box "Неверный ввод" "Неверное имя пользователя\nИмена должны быть разделены запятой ',' без символа '@' и лишних пробелов."
           continue
         fi
         config[tgbot_admins]=$tgbot_admins
@@ -2225,8 +2307,8 @@ function backup_menu {
   backup_password=$(whiptail \
     --clear \
     --backtitle "$BACKTITLE" \
-    --title "Backup" \
-    --inputbox "Choose a password for the backup file.\nLeave blank if you do not wish to set a password for the backup file." \
+    --title "Бэкап" \
+    --inputbox "Установите пароль для файла бэкапа.\nОставьте пустым, если не хотите устанавливать пароль." \
     $HEIGHT $WIDTH \
     3>&1 1>&2 2>&3)
   if [[ $? -ne 0 ]]; then
@@ -2234,18 +2316,18 @@ function backup_menu {
   fi
   if result=$(backup "${backup_password}" 2>&1); then
     clear
-    echo "Backup has been create and uploaded successfully."
-    echo "You can download the backup file from here:"
+    echo "Бэкап успешно создан и загружен."
+    echo "Вы можете скачать файл бэкапа по этой ссылке:"
     echo ""
     echo "${result}"
     echo ""
-    echo "The URL is valid for 3 days."
+    echo "URL действителен в течение 3 дней."
     echo
-    echo "Press Enter to return ..."
+    echo "Нажмите Enter, чтобы вернуться..."
     read
     clear
   else
-    message_box "Backup Failed" "${result}"
+    message_box "Ошибка бэкапа" "${result}"
   fi
 }
 
@@ -2257,22 +2339,22 @@ function restore_backup_menu {
     backup_file=$(whiptail \
       --clear \
       --backtitle "$BACKTITLE" \
-      --title "Restore Backup" \
-      --inputbox "Enter backup file path or URL" \
+      --title "Восстановить бэкап" \
+      --inputbox "Введите путь к файлу бэкапа или URL" \
       $HEIGHT $WIDTH \
       3>&1 1>&2 2>&3)
     if [[ $? -ne 0 ]]; then
       break
     fi
     if [[ ! $backup_file =~ ${regex[file_path]} ]] && [[ ! $backup_file =~ ${regex[url]} ]]; then
-      message_box "Invalid Backup path of URL" "Backup file path or URL is not valid."
+      message_box "Неверный путь или URL" "Путь к файлу бэкапа или URL недействителен."
       continue
     fi
     backup_password=$(whiptail \
       --clear \
       --backtitle "$BACKTITLE" \
-      --title "Restore Backup" \
-      --inputbox "Enter backup file password.\nLeave blank if there is no password." \
+      --title "Восстановить бэкап" \
+      --inputbox "Введите пароль файла бэкапа.\nОставьте пустым, если пароля нет." \
       $HEIGHT $WIDTH \
       3>&1 1>&2 2>&3)
     if [[ $? -ne 0 ]]; then
@@ -2284,11 +2366,11 @@ function restore_backup_menu {
       build_config
       update_config_file
       update_users_file
-      message_box "Backup Restore Successful" "Backup has been restored successfully."
+      message_box "Восстановление успешно" "Бэкап был успешно восстановлен."
       args[restart]=true
       break
     else
-      message_box "Backup Restore Failed" "${result}"
+      message_box "Ошибка восстановления" "${result}"
     fi
   done
 }
@@ -2362,7 +2444,7 @@ function warp_create_account {
   local response
   docker run --rm -it -v "${config_path}":/data "${image[wgcf]}" register --config /data/wgcf-account.toml --accept-tos
   if [[ $? -ne 0 || ! -r ${config_path}/wgcf-account.toml ]]; then
-    echo "WARP account creation has been failed!"
+    echo "Ошибка создания аккаунта WARP!"
     return 1
   fi
   config[warp_token]=$(cat ${config_path}/wgcf-account.toml | grep 'access_token' | cut -d "'" -f2)
@@ -2554,7 +2636,7 @@ function configure_docker {
 
 parse_args "$@" || show_help
 if [[ $EUID -ne 0 ]]; then
-    echo "This script must be run as root."
+    echo "Этот скрипт должен быть запущен от имени root."
     exit 1
 fi
 if [[ ${args[backup]} == true ]]; then
@@ -2564,9 +2646,9 @@ if [[ ${args[backup]} == true ]]; then
     backup_url=$(backup)
   fi
   if [[ $? -eq 0 ]]; then
-    echo "Backup created successfully. You can download the backup file from this address:"
+    echo "Бэкап успешно создан. Вы можете скачать его по этому адресу:"
     echo "${backup_url}"
-    echo "The URL is valid for 3 days."
+    echo "URL действителен в течение 3 дней."
     exit 0
   fi
 fi
@@ -2578,9 +2660,9 @@ if [[ -n ${args[restore]} ]]; then
   fi
   if [[ $? -eq 0 ]]; then
     args[restart]=true
-    echo "Backup has been restored successfully."
+    echo "Бэкап был успешно восстановлен."
   fi
-  echo "Press Enter to continue ..."
+  echo "Нажмите Enter, чтобы продолжить..."
   read
   clear
 fi
@@ -2629,7 +2711,7 @@ fi
 if [[ -n ${args[show_config]} ]]; then
   username="${args[show_config]}"
   if [[ -z "${users["${username}"]}" ]]; then
-    echo 'User "'"$username"'" does not exists.'
+    echo 'Пользователь "'"$username"'" не существует.'
     exit 1
   fi
 fi
@@ -2639,5 +2721,5 @@ fi
 if [[ -n $username ]]; then
   print_client_configuration "${username}"
 fi
-echo "Command has been executed successfully!"
+echo "Команда успешно выполнена!"
 exit 0
