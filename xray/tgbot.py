@@ -21,14 +21,12 @@ from telegram.ext import (
 
 # --- Настройки путей и команд ---
 
-# Папка данных (в Docker контейнере она примонтирована)
 DATA_DIR = '/opt/reality-ezpz'
 CONFIG_FILE = os.path.join(DATA_DIR, 'config')
 
 # Основная команда запуска.
-# Добавляем заглушку (alias) для systemctl, чтобы скрипт не падал в контейнере при попытке рестарта докера.
-# Мы сделаем рестарт сами через команду бота, если нужно.
-BASE_COMMAND = 'function systemctl() { echo "Systemctl ignored inside container"; return 0; }; export -f systemctl; bash <(curl -sL https://raw.githubusercontent.com/qp-io/qp-io.github.io/refs/heads/main/xray/reality-ezpz.sh) '
+# Заглушка systemctl теперь тихая (просто возвращает 0).
+BASE_COMMAND = 'function systemctl() { :; }; export -f systemctl; bash <(curl -sL https://raw.githubusercontent.com/qp-io/qp-io.github.io/refs/heads/main/xray/reality-ezpz.sh) '
 
 # Logging
 logging.basicConfig(level=logging.INFO)
@@ -46,15 +44,10 @@ username_regex = re.compile(r"^[a-zA-Z0-9]+$")
 # --- Хелперы ---
 
 def run_command(cmd_args: str, timeout: int = 300) -> str:
-    """
-    Запускает команду, используя curl-обертку.
-    """
-    # Собираем полную команду с заглушкой systemctl
+    """Запускает команду скрипта."""
     full_cmd = BASE_COMMAND + cmd_args
     try:
         logger.info(f"Executing args: {cmd_args}")
-        # Запускаем через bash -c.
-        # Используем executable='/bin/bash', чтобы функции export работали корректно.
         process = subprocess.Popen(
             full_cmd, 
             shell=True,
@@ -64,13 +57,11 @@ def run_command(cmd_args: str, timeout: int = 300) -> str:
         )
         output, err = process.communicate(timeout=timeout)
         
-        # Скрипт reality может писать в stderr даже при успешной работе (curl progress и т.д.)
-        # Но если returncode != 0, это ошибка.
         if process.returncode != 0:
             err_decoded = err.decode().strip()
-            # Фильтруем ошибку systemctl, если она все же пролезла (хотя заглушка должна помочь)
-            if "systemctl" in err_decoded and process.returncode == 127: 
-                pass # Игнорируем отсутствие systemctl
+            # Игнорируем ошибки systemctl (код 127 или текст), если они все же пролезут
+            if "systemctl" in err_decoded and (process.returncode == 127 or "command not found" in err_decoded):
+                pass 
             else:
                 logger.warning(f"Command exited {process.returncode}: {err_decoded}")
                 return f"Error: {err_decoded}" if err_decoded else output.decode()
@@ -80,12 +71,23 @@ def run_command(cmd_args: str, timeout: int = 300) -> str:
         logger.exception(f"run_command failed: {e}")
         return str(e)
 
+def modify_config_directly(key: str, value: str):
+    """
+    Прямая правка конфига через sed.
+    Нужна для случаев, когда скрипт игнорирует пустые аргументы.
+    """
+    if not os.path.exists(CONFIG_FILE):
+        return
+    # Экранируем слеши для sed
+    safe_val = value.replace('/', '\\/')
+    # Если ключ есть, заменяем. Если нет — не добавляем (скрипт сам добавит при рестарте, если нужно, или это не критично)
+    cmd = f"sed -i 's/^{key}=.*/{key}={safe_val}/' {CONFIG_FILE}"
+    subprocess.run(cmd, shell=True)
+
 def read_config_file() -> Dict[str, str]:
-    """Читает файл config напрямую с диска."""
     config = {}
     if not os.path.exists(CONFIG_FILE):
         return config
-    
     try:
         with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
             for line in f:
@@ -260,7 +262,7 @@ async def settings_submenu(update: Update, context: ContextTypes.DEFAULT_TYPE, c
             [InlineKeyboardButton('NoTLS', callback_data='run!security!notls')]
         ]
     elif category == 'warp':
-        text = "Управление WARP:\n\nЕсли у вас есть ключ WARP+, выберите 'Вкл с Лицензией', иначе бот попробует создать бесплатный аккаунт."
+        text = "Управление WARP:\n\nЕсли 'Бесплатно' не работает, попробуйте 'Выключить', затем снова 'Вкл (Бесплатно)'."
         keyboard = [
             [InlineKeyboardButton('✅ Вкл (Бесплатно)', callback_data='run!enable-warp!true')],
             [InlineKeyboardButton('🔑 Вкл (С Лицензией)', callback_data='ask!warp_license')],
@@ -286,10 +288,10 @@ async def ask_value(update: Update, context: ContextTypes.DEFAULT_TYPE, param: s
     }
     label = labels.get(param, param)
     
-    # Для Path добавляем кнопку "Очистить"
+    # Кнопка очистки для Path
     extra_buttons = []
     if param == 'path':
-        extra_buttons.append(InlineKeyboardButton('🗑 Очистить (сделать пустым)', callback_data='run!path!'))
+        extra_buttons.append(InlineKeyboardButton('🗑 Очистить (сделать пустым)', callback_data='run!path!EMPTY'))
         
     buttons = [extra_buttons] if extra_buttons else []
     buttons.append([InlineKeyboardButton('❌ Отмена', callback_data='menu_settings')])
@@ -304,23 +306,43 @@ async def ask_value(update: Update, context: ContextTypes.DEFAULT_TYPE, param: s
 async def execute_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, param: str, value: str):
     chat_id = update.effective_chat.id
     
-    # Подменяем пустой value на кавычки для bash, если пришло пусто
-    cmd_val = value if value else "''"
+    # 1. Исправление названия флага для лицензии
+    script_flag = param
+    if param == 'warp_license':
+        script_flag = 'warp-license'
+
+    # 2. Логика очистки конфига
+    is_clearing_path = (param == 'path' and (value == '/' or value == 'EMPTY' or value == ''))
     
-    # Проверка для Path: если пользователь ввел /, отправляем пустоту
-    if param == 'path' and value == '/':
-        cmd_val = "''"
-        value = "пустой"
+    # Если включаем бесплатный WARP, очищаем лицензию в конфиге, чтобы скрипт не ругался
+    if param == 'enable-warp' and value == 'true':
+        modify_config_directly('warp_license', '')
+
+    msg_text = f"⏳ Применяю: <code>--{script_flag} {value}</code>..."
+    if is_clearing_path:
+        msg_text = "⏳ Очищаю Path и перезапускаю..."
+
+    msg = await context.bot.send_message(chat_id=chat_id, text=msg_text, parse_mode='HTML')
     
-    msg = await context.bot.send_message(chat_id=chat_id, text=f"⏳ Применяю: <code>--{param} {cmd_val}</code>...", parse_mode='HTML')
+    out = ""
     
-    args = f"--{param} {cmd_val}"
-    out = run_command(args, timeout=300)
-    
+    if is_clearing_path:
+        # Прямая правка конфига для очистки пути
+        modify_config_directly('service_path', '')
+        # Перезапуск для применения
+        out = run_command("--restart")
+        value = "(пусто)"
+    else:
+        # Стандартный запуск
+        # Если значение пустое (но не спец. кейс path), ставим кавычки, чтобы bash не потерял аргумент
+        cmd_val = value if value else "''"
+        out = run_command(f"--{script_flag} {cmd_val}")
+
     if "Error" in out and "systemctl" not in out:
         text = f"❌ Ошибка:\n<pre>{out}</pre>"
     else:
-        text = f"✅ Успешно! ({param}={value})\nЕсли WARP не включился, попробуйте перезагрузить службы.\n\n<pre>{out[-200:]}</pre>"
+        # Успех
+        text = f"✅ Успешно! ({param}={value})\n\n<pre>{out[-250:]}</pre>"
         
     await context.bot.edit_message_text(chat_id=chat_id, message_id=msg.message_id, text=text, parse_mode='HTML')
     await context.bot.send_message(chat_id=chat_id, text="...", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('🔙 Меню', callback_data='menu_settings')]]))
@@ -378,8 +400,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif cmd == 'set_sub': await settings_submenu(update, context, arg1)
     elif cmd == 'ask': await ask_value(update, context, arg1)
     elif cmd == 'run':
-        # Если arg2 пуст, значит передаем пустую строку (для path)
-        await execute_setting(update, context, arg1, arg2)
+        # Передаем значение. Если нажали кнопку "Очистить" в Path, прилетит arg2="EMPTY"
+        val = arg2 if arg2 else ""
+        await execute_setting(update, context, arg1, val)
     elif cmd == 'act_backup': await action_backup(update, context)
     elif cmd == 'act_restart': await action_restart(update, context)
 
