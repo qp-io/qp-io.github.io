@@ -462,4 +462,25 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await context.bot.delete_message(chat_id=chat_id, message_id=msg.message_id)
             await context.bot.send_message(chat_id=chat_id, text=f"✅ Пользователь {text} создан.")
-            await s
+            await show_user(update, context, text)
+            
+    elif action == 'setting':
+        param = context.user_data.pop('setting_param', None)
+        if param == 'port' and not text.isdigit():
+             await context.bot.send_message(chat_id=chat_id, text="❌ Порт должен быть числом.")
+             return
+        
+        await execute_setting(update, context, param, text)
+
+# Main
+def main():
+    app = ApplicationBuilder().token(TOKEN).build()
+    app.add_handler(CommandHandler('start', start))
+    app.add_handler(CallbackQueryHandler(callback_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
+
+    logger.info("Bot started.")
+    app.run_polling()
+
+if __name__ == '__main__':
+    main()
