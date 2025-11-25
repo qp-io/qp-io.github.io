@@ -1298,7 +1298,12 @@ EOF
         $([[ ${config[transport]} == 'grpc' ]] && echo '"grpcSettings": {"serviceName": "'"${config[service_path]}"'"},' || true)
         $([[ ${config[transport]} == 'ws' ]] && echo '"wsSettings": {"headers": {"Host": "'"${config[host_header]}"'"}, "path": "/'"${config[service_path]}"'"},' || true)
         $([[ ${config[transport]} == 'http' ]] && echo '"httpSettings": {"host":["'"${config[server]}"'"], "path": "/'"${config[service_path]}"'"},' || true)
-        $([[ ${config[transport]} == 'xhttp' ]] && echo '"xhttpSettings": {"path": "/'"${config[service_path]}"'"},' || true)
+        $(if [[ ${config[transport]} == 'xhttp' ]]; then
+           echo '"xhttpSettings": {'
+           if [[ -n ${config[host_header]} ]]; then echo '"host": "'"${config[host_header]}"'",'; fi
+           echo '"path": "/'"${config[service_path]}"'"'
+           echo '},'
+        fi)
         "network": "${config[transport]}",
         $(if [[ ${config[security]} == 'reality' ]]; then
           echo "${reality_object}"
@@ -1476,8 +1481,8 @@ function print_client_configuration {
     client_config="${client_config}$([[ ${config[security]} == 'reality' ]] && echo "&pbk=${config[public_key]}" || true)"
     client_config="${client_config}$([[ ${config[security]} == 'reality' ]] && echo "&sid=${config[short_id]}" || true)"
     client_config="${client_config}$([[ ${config[transport]} == 'ws' || ${config[transport]} == 'http' || ${config[transport]} == 'xhttp' ]] && echo "&path=%2F${config[service_path]}" || true)"
-    client_config="${client_config}$([[ ${config[transport]} == 'xhttp' ]] && echo "&host=${config[host_header]}" || true)"
-    client_config="${client_config}$([[ ${config[transport]} == 'ws' ]] && echo "&host=${config[host_header]}" || true)"
+    client_config="${client_config}$([[ ${config[transport]} == 'xhttp' && -n ${config[host_header]} ]] && echo "&host=${config[host_header]}" || true)"
+    client_config="${client_config}$([[ ${config[transport]} == 'ws' && -n ${config[host_header]} ]] && echo "&host=${config[host_header]}" || true)"
     client_config="${client_config}$([[ ${config[transport]} == 'xhttp' ]] && echo '&mode=auto' || true)"
     client_config="${client_config}$([[ ${config[transport]} == 'grpc' ]] && echo '&mode=gun' || true)"
     client_config="${client_config}$([[ ${config[transport]} == 'grpc' ]] && echo "&serviceName=${config[service_path]}" || true)"
@@ -2130,15 +2135,17 @@ function config_port_menu {
 }
 
 function config_path_menu {
-  local path
+  local user_path
   while true; do
-    path=$(whiptail --clear --backtitle "$BACKTITLE" --title "Путь (Path)" \
+    user_path=$(whiptail --clear --backtitle "$BACKTITLE" --title "Путь (Path)" \
       --inputbox "Введите путь (без начального слеша /):" $HEIGHT $WIDTH "${config[service_path]}" \
       3>&1 1>&2 2>&3)
     if [[ $? -ne 0 ]]; then
       break
     fi
-    config[service_path]=$path
+    # Remove leading slash if present
+    user_path="${user_path#/}"
+    config[service_path]=$user_path
     update_config_file
     break
   done
