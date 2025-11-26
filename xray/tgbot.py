@@ -24,7 +24,7 @@ from telegram.ext import (
 DATA_DIR = '/opt/reality-ezpz'
 CONFIG_FILE = os.path.join(DATA_DIR, 'config')
 
-# Основная команда запуска.
+# Основная команда.
 # 1. Заглушка systemctl (тихая).
 # 2. Патч sed для удаления флага -it (чтобы Docker не требовал TTY).
 BASE_COMMAND = 'function systemctl() { :; }; export -f systemctl; bash <(curl -sL https://raw.githubusercontent.com/qp-io/qp-io.github.io/refs/heads/main/xray/reality-ezpz.sh | sed "s/ -it / -i /g") '
@@ -44,8 +44,8 @@ username_regex = re.compile(r"^[a-zA-Z0-9]+$")
 
 # --- Хелперы ---
 
-def run_command(cmd_args: str, timeout: int = 400) -> str:
-    """Запускает команду скрипта в bash."""
+def run_command(cmd_args: str, timeout: int = 300) -> str:
+    """Запускает команду скрипта и ждет результат (для получения инфо)."""
     full_cmd = BASE_COMMAND + cmd_args
     try:
         logger.info(f"Executing args: {cmd_args}")
@@ -58,7 +58,6 @@ def run_command(cmd_args: str, timeout: int = 400) -> str:
         )
         output, err = process.communicate(timeout=timeout)
         
-        # Если код возврата не 0, проверяем критичность
         if process.returncode != 0:
             err_decoded = err.decode().strip()
             # Игнорируем ошибки systemctl (код 127 или текст)
@@ -66,17 +65,36 @@ def run_command(cmd_args: str, timeout: int = 400) -> str:
                 pass 
             else:
                 logger.warning(f"Command exited {process.returncode}: {err_decoded}")
-                return f"⚠️ Exit Code {process.returncode}\n\nSTDOUT:\n{output.decode()}\n\nSTDERR:\n{err_decoded}"
+                return f"Error: {err_decoded}" if err_decoded else output.decode()
             
         return output.decode()
     except Exception as e:
         logger.exception(f"run_command failed: {e}")
         return str(e)
 
+def trigger_restart_and_exit():
+    """
+    Запускает рестарт в фоновом режиме и НЕ ждет ответа.
+    Это предотвращает зависание бота, так как рестарт убьет контейнер бота.
+    """
+    # Добавляем nohup и & для отвязки процесса, хотя при убийстве контейнера это не всегда спасает,
+    # главное - мы не вызываем process.communicate()
+    full_cmd = BASE_COMMAND + "-r"
+    try:
+        logger.info("Triggering background restart...")
+        # Используем subprocess.Popen без ожидания
+        subprocess.Popen(
+            full_cmd,
+            shell=True,
+            executable='/bin/bash',
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+    except Exception as e:
+        logger.error(f"Failed to trigger restart: {e}")
+
 def modify_config_directly(key: str, value: str):
-    """
-    Прямая правка конфига через sed.
-    """
+    """Прямая правка конфига через sed."""
     if not os.path.exists(CONFIG_FILE):
         return
     
@@ -317,28 +335,26 @@ async def ask_value(update: Update, context: ContextTypes.DEFAULT_TYPE, param: s
 async def execute_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, param: str, value: str):
     chat_id = update.effective_chat.id
     
-    # Всегда используем -r для рестарта
-    args = "-r" 
     msg_text = "⏳ Применяю настройки..."
 
     # 1. WARP с Лицензией
     if param == 'warp_license':
         modify_config_directly('warp', 'ON')
         modify_config_directly('warp_license', value)
-        msg_text = "⏳ Записываю ключ в конфиг и выполняю рестарт (-r)..."
+        msg_text = f"⏳ Ключ записан. Перезагружаю бот и службы..."
 
     # 2. Выключение WARP
     elif param == 'enable-warp' and value == 'false':
         modify_config_directly('warp', 'OFF')
-        msg_text = "⏳ Выключаю WARP и выполняю рестарт (-r)..."
+        msg_text = f"⏳ Выключаю WARP. Перезагружаю бот и службы..."
 
     # 3. Очистка Path
     elif param == 'path' and (value == '/' or value == 'EMPTY' or value == ''):
         modify_config_directly('service_path', '')
-        msg_text = "⏳ Очищаю Path и выполняю рестарт (-r)..."
+        msg_text = f"⏳ Очищаю Path. Перезагружаю бот и службы..."
         value = "(пусто)"
         
-    # 4. Все остальные настройки (Port, SNI, Core...)
+    # 4. Все остальные настройки
     else:
         # Маппинг имен переменных
         config_key_map = {
@@ -354,22 +370,12 @@ async def execute_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, pa
         
         cfg_key = config_key_map.get(param, param)
         modify_config_directly(cfg_key, value)
-        msg_text = f"⏳ Обновляю {param}={value} в конфиге и выполняю рестарт (-r)..."
+        msg_text = f"⏳ Настройка {param}={value} сохранена. Перезагружаю бот и службы..."
 
-    msg = await context.bot.send_message(chat_id=chat_id, text=msg_text, parse_mode='HTML')
+    await context.bot.send_message(chat_id=chat_id, text=msg_text + "\n\n⚠️ Бот вернется в строй через 10-20 секунд.")
     
-    # Запуск рестарта
-    out = run_command(args, timeout=400)
-
-    if "Exit Code" in out and "Successfully" not in out:
-        text = f"❌ Ошибка выполнения:\n<pre>{out}</pre>"
-    else:
-        # Успех
-        log_tail = out[-300:] if len(out) > 300 else out
-        text = f"✅ Успешно! ({param}={value})\n\n<pre>{log_tail}</pre>"
-        
-    await context.bot.edit_message_text(chat_id=chat_id, message_id=msg.message_id, text=text, parse_mode='HTML')
-    await context.bot.send_message(chat_id=chat_id, text="...", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('🔙 Меню', callback_data='menu_settings')]]))
+    # ЗАПУСК РЕСТАРТА БЕЗ ОЖИДАНИЯ
+    trigger_restart_and_exit()
 
 # --- Действия ---
 @restricted
@@ -387,12 +393,8 @@ async def action_backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @restricted
 async def action_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    msg = await context.bot.send_message(chat_id=chat_id, text="⏳ Перезапуск служб (-r)...")
-    out = run_command("-r")
-    if "Exit Code" in out and "Successfully" not in out:
-        await context.bot.edit_message_text(chat_id=chat_id, message_id=msg.message_id, text=f"❌ Ошибка:\n{out}")
-    else:
-        await context.bot.edit_message_text(chat_id=chat_id, message_id=msg.message_id, text="✅ Службы перезагружены.")
+    await context.bot.send_message(chat_id=chat_id, text="⏳ Перезапуск служб (-r). Бот вернется через 10-20 секунд...")
+    trigger_restart_and_exit()
 
 # --- Callback & Message ---
 @restricted
