@@ -24,8 +24,10 @@ from telegram.ext import (
 DATA_DIR = '/opt/reality-ezpz'
 CONFIG_FILE = os.path.join(DATA_DIR, 'config')
 
-# Основная команда запуска (с тихой заглушкой systemctl)
-BASE_COMMAND = 'function systemctl() { :; }; export -f systemctl; bash <(curl -sL https://raw.githubusercontent.com/qp-io/qp-io.github.io/refs/heads/main/xray/reality-ezpz.sh) '
+# Основная команда запуска.
+# 1. systemctl заглушен (чтобы не спамил ошибками).
+# 2. Скрипт скачивается и сразу патчится: заменяем ' -it ' на ' -i ', чтобы Docker не требовал TTY.
+BASE_COMMAND = 'function systemctl() { :; }; export -f systemctl; bash <(curl -sL https://raw.githubusercontent.com/qp-io/qp-io.github.io/refs/heads/main/xray/reality-ezpz.sh | sed "s/ -it / -i /g") '
 
 # Logging
 logging.basicConfig(level=logging.INFO)
@@ -43,10 +45,11 @@ username_regex = re.compile(r"^[a-zA-Z0-9]+$")
 # --- Хелперы ---
 
 def run_command(cmd_args: str, timeout: int = 300) -> str:
-    """Запускает команду скрипта."""
+    """Запускает команду скрипта в bash."""
     full_cmd = BASE_COMMAND + cmd_args
     try:
         logger.info(f"Executing args: {cmd_args}")
+        # Используем executable='/bin/bash', так как синтаксис <(...) работает только в bash
         process = subprocess.Popen(
             full_cmd, 
             shell=True,
@@ -58,7 +61,7 @@ def run_command(cmd_args: str, timeout: int = 300) -> str:
         
         if process.returncode != 0:
             err_decoded = err.decode().strip()
-            # Игнорируем ошибки systemctl (код 127 или текст)
+            # Игнорируем ошибки systemctl (код 127 или текст), если они все же пролезут
             if "systemctl" in err_decoded and (process.returncode == 127 or "command not found" in err_decoded):
                 pass 
             else:
@@ -256,8 +259,7 @@ async def settings_submenu(update: Update, context: ContextTypes.DEFAULT_TYPE, c
             [InlineKeyboardButton('NoTLS', callback_data='run!security!notls')]
         ]
     elif category == 'warp':
-        # Только 2 кнопки: Включить (просит ключ) и Выключить.
-        text = "Управление WARP:\nДля включения потребуется ввести лицензионный ключ."
+        text = "Управление WARP:"
         keyboard = [
             [InlineKeyboardButton('✅ Включить', callback_data='ask!warp_license')],
             [InlineKeyboardButton('❌ Выключить', callback_data='run!enable-warp!false')]
@@ -299,32 +301,28 @@ async def ask_value(update: Update, context: ContextTypes.DEFAULT_TYPE, param: s
 async def execute_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, param: str, value: str):
     chat_id = update.effective_chat.id
     
-    # 1. Логика для WARP
-    # Если введен warp_license, то выполняем команду на включение с лицензией
+    # 1. WARP
     if param == 'warp_license':
-        # Формируем строку аргументов: включить warp И добавить лицензию
+        # Включаем и добавляем лицензию одновременно
         args = f"--enable-warp true --warp-license {value}"
         msg_text = f"⏳ Включаю WARP с лицензией..."
         
-    # 2. Логика для очистки пути
+    # 2. Очистка Path
     elif param == 'path' and (value == '/' or value == 'EMPTY' or value == ''):
         modify_config_directly('service_path', '')
         args = "--restart"
         msg_text = "⏳ Очищаю Path и перезапускаю..."
         value = "(пусто)"
         
-    # 3. Обычная логика
+    # 3. Стандарт
     else:
-        # Исправляем имена флагов если надо (в коде warp_license с _, в bash с -)
         script_flag = param.replace('_', '-')
-        
         cmd_val = value if value else "''"
         args = f"--{script_flag} {cmd_val}"
         msg_text = f"⏳ Применяю: <code>--{script_flag} {cmd_val}</code>..."
 
     msg = await context.bot.send_message(chat_id=chat_id, text=msg_text, parse_mode='HTML')
     
-    # Запуск
     out = run_command(args, timeout=300)
 
     if "Error" in out and "systemctl" not in out:
