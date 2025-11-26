@@ -25,8 +25,9 @@ DATA_DIR = '/opt/reality-ezpz'
 CONFIG_FILE = os.path.join(DATA_DIR, 'config')
 
 # Основная команда запуска.
-# 1. systemctl заглушен (чтобы не спамил ошибками).
-# 2. Скрипт скачивается и сразу патчится: заменяем ' -it ' на ' -i ', чтобы Docker не требовал TTY.
+# Добавляем:
+# 1. Заглушку systemctl (тихую).
+# 2. Патч sed для удаления флага -it (чтобы Docker не требовал TTY).
 BASE_COMMAND = 'function systemctl() { :; }; export -f systemctl; bash <(curl -sL https://raw.githubusercontent.com/qp-io/qp-io.github.io/refs/heads/main/xray/reality-ezpz.sh | sed "s/ -it / -i /g") '
 
 # Logging
@@ -44,12 +45,11 @@ username_regex = re.compile(r"^[a-zA-Z0-9]+$")
 
 # --- Хелперы ---
 
-def run_command(cmd_args: str, timeout: int = 300) -> str:
+def run_command(cmd_args: str, timeout: int = 400) -> str:
     """Запускает команду скрипта в bash."""
     full_cmd = BASE_COMMAND + cmd_args
     try:
         logger.info(f"Executing args: {cmd_args}")
-        # Используем executable='/bin/bash', так как синтаксис <(...) работает только в bash
         process = subprocess.Popen(
             full_cmd, 
             shell=True,
@@ -59,14 +59,18 @@ def run_command(cmd_args: str, timeout: int = 300) -> str:
         )
         output, err = process.communicate(timeout=timeout)
         
+        # Если код возврата не 0, это ошибка.
+        # Но иногда скрипт пишет логи успеха в stderr или падает из-за мелочей.
+        # Мы вернем полный вывод, чтобы пользователь видел контекст.
         if process.returncode != 0:
             err_decoded = err.decode().strip()
-            # Игнорируем ошибки systemctl (код 127 или текст), если они все же пролезут
+            # Игнорируем специфические ошибки, которые не влияют на результат
             if "systemctl" in err_decoded and (process.returncode == 127 or "command not found" in err_decoded):
                 pass 
             else:
                 logger.warning(f"Command exited {process.returncode}: {err_decoded}")
-                return f"Error: {err_decoded}" if err_decoded else output.decode()
+                # Возвращаем комбинированный вывод
+                return f"⚠️ Exit Code {process.returncode}\n\nSTDOUT:\n{output.decode()}\n\nSTDERR:\n{err_decoded}"
             
         return output.decode()
     except Exception as e:
@@ -74,11 +78,28 @@ def run_command(cmd_args: str, timeout: int = 300) -> str:
         return str(e)
 
 def modify_config_directly(key: str, value: str):
-    """Прямая правка конфига через sed (для очистки полей)."""
+    """
+    Прямая правка конфига через sed.
+    Если ключа нет, он будет проигнорирован (скрипт сам создаст структуру при рестарте),
+    либо можно добавить append. Но для WARP ключи обычно уже есть или создаются скриптом.
+    """
     if not os.path.exists(CONFIG_FILE):
         return
-    safe_val = value.replace('/', '\\/')
-    cmd = f"sed -i 's/^{key}=.*/{key}={safe_val}/' {CONFIG_FILE}"
+    
+    # Экранируем слеши и амперсанды для sed
+    safe_val = value.replace('/', '\\/').replace('&', '\\&')
+    
+    # Проверяем, есть ли ключ в файле
+    grep_cmd = f"grep -q '^{key}=' {CONFIG_FILE}"
+    exists = subprocess.call(grep_cmd, shell=True) == 0
+    
+    if exists:
+        # Заменяем
+        cmd = f"sed -i 's/^{key}=.*/{key}={safe_val}/' {CONFIG_FILE}"
+    else:
+        # Добавляем в конец
+        cmd = f"echo '{key}={value}' >> {CONFIG_FILE}"
+        
     subprocess.run(cmd, shell=True)
 
 def read_config_file() -> Dict[str, str]:
@@ -259,9 +280,10 @@ async def settings_submenu(update: Update, context: ContextTypes.DEFAULT_TYPE, c
             [InlineKeyboardButton('NoTLS', callback_data='run!security!notls')]
         ]
     elif category == 'warp':
-        text = "Управление WARP:"
+        text = "Управление WARP:\nДля использования WARP+ выберите 'Вкл с Лицензией' и введите ключ."
         keyboard = [
-            [InlineKeyboardButton('✅ Включить', callback_data='ask!warp_license')],
+            [InlineKeyboardButton('✅ Вкл (Бесплатно)', callback_data='run!enable-warp!true')],
+            [InlineKeyboardButton('🔑 Вкл (С Лицензией)', callback_data='ask!warp_license')],
             [InlineKeyboardButton('❌ Выключить', callback_data='run!enable-warp!false')]
         ]
 
@@ -301,34 +323,67 @@ async def ask_value(update: Update, context: ContextTypes.DEFAULT_TYPE, param: s
 async def execute_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, param: str, value: str):
     chat_id = update.effective_chat.id
     
-    # 1. WARP
+    # --- ЛОГИКА ПРЯМОЙ ЗАПИСИ В CONFIG И РЕСТАРТА ---
+    
+    args = "--restart" # По умолчанию будем рестартить
+    msg_text = "⏳ Применяю настройки..."
+
+    # 1. WARP с Лицензией
     if param == 'warp_license':
-        # Включаем и добавляем лицензию одновременно
-        args = f"--enable-warp true --warp-license {value}"
-        msg_text = f"⏳ Включаю WARP с лицензией..."
-        
-    # 2. Очистка Path
+        modify_config_directly('warp', 'ON')
+        modify_config_directly('warp_license', value)
+        msg_text = "⏳ Записываю ключ в конфиг и перезапускаю WARP..."
+
+    # 2. WARP Включение (Free) / Выключение
+    elif param == 'enable-warp':
+        if value == 'true':
+            modify_config_directly('warp', 'ON')
+            modify_config_directly('warp_license', '') # Стираем лицензию для Free
+            msg_text = "⏳ Включаю WARP (Free) и перезапускаю..."
+        else:
+            modify_config_directly('warp', 'OFF')
+            msg_text = "⏳ Выключаю WARP..."
+
+    # 3. Очистка Path
     elif param == 'path' and (value == '/' or value == 'EMPTY' or value == ''):
         modify_config_directly('service_path', '')
-        args = "--restart"
         msg_text = "⏳ Очищаю Path и перезапускаю..."
         value = "(пусто)"
         
-    # 3. Стандарт
+    # 4. Все остальные настройки (Port, SNI, Core...)
     else:
-        script_flag = param.replace('_', '-')
-        cmd_val = value if value else "''"
-        args = f"--{script_flag} {cmd_val}"
-        msg_text = f"⏳ Применяю: <code>--{script_flag} {cmd_val}</code>..."
+        # Для остальных настроек также надежнее писать в конфиг и рестартить,
+        # чем полагаться на парсинг флагов bash-скриптом через curl
+        
+        # Маппинг имен переменных бота на переменные в config файле скрипта
+        config_key_map = {
+            'core': 'core',
+            'transport': 'transport',
+            'security': 'security',
+            'port': 'port',
+            'server': 'server',
+            'domain': 'domain',
+            'path': 'service_path', # В скрипте переменная называется service_path
+            'host': 'host_header'
+        }
+        
+        cfg_key = config_key_map.get(param, param)
+        modify_config_directly(cfg_key, value)
+        msg_text = f"⏳ Обновляю {param}={value} в конфиге и перезапускаю..."
 
     msg = await context.bot.send_message(chat_id=chat_id, text=msg_text, parse_mode='HTML')
     
-    out = run_command(args, timeout=300)
+    # Запускаем скрипт только на рестарт, так как настройки уже в файле
+    out = run_command(args, timeout=400)
 
-    if "Error" in out and "systemctl" not in out:
-        text = f"❌ Ошибка:\n<pre>{out}</pre>"
+    # Проверка на фатальные ошибки
+    if "Exit Code" in out and "Successfully" not in out:
+        text = f"❌ Ошибка выполнения:\n<pre>{out}</pre>"
     else:
-        text = f"✅ Успешно! ({param}={value})\n\n<pre>{out[-250:]}</pre>"
+        # Успех (даже если есть логи в stderr)
+        # Отрезаем лишний "шум", показываем последние строки лога
+        log_tail = out[-300:] if len(out) > 300 else out
+        text = f"✅ Успешно!\n\n<pre>{log_tail}</pre>"
         
     await context.bot.edit_message_text(chat_id=chat_id, message_id=msg.message_id, text=text, parse_mode='HTML')
     await context.bot.send_message(chat_id=chat_id, text="...", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('🔙 Меню', callback_data='menu_settings')]]))
@@ -351,7 +406,8 @@ async def action_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     msg = await context.bot.send_message(chat_id=chat_id, text="⏳ Перезапуск служб...")
     out = run_command("--restart")
-    if "Error" in out:
+    # Простая проверка на успех
+    if "Exit Code" in out and "Successfully" not in out:
         await context.bot.edit_message_text(chat_id=chat_id, message_id=msg.message_id, text=f"❌ Ошибка:\n{out}")
     else:
         await context.bot.edit_message_text(chat_id=chat_id, message_id=msg.message_id, text="✅ Службы перезагружены.")
@@ -403,7 +459,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         msg = await context.bot.send_message(chat_id=chat_id, text="Создание...")
         out = run_command(f'--add-user {text}')
-        if "Error" in out:
+        if "Exit Code" in out:
             await context.bot.edit_message_text(chat_id=chat_id, message_id=msg.message_id, text=f"❌ Ошибка:\n{out}")
         else:
             await context.bot.delete_message(chat_id=chat_id, message_id=msg.message_id)
