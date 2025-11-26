@@ -7,6 +7,7 @@ import zipfile
 import asyncio
 from typing import Optional, Dict
 from datetime import datetime
+import io
 
 import qrcode
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -42,10 +43,10 @@ if not TOKEN:
 ADMIN = os.environ.get('BOT_ADMIN', '')
 username_regex = re.compile(r"^[a-zA-Z0-9]+$")
 
-# --- Управление состоянием (для приветствия после рестарта) ---
+# --- Управление состоянием (для приветствия после рестарта контейнера) ---
 
 def save_restart_state(chat_id):
-    """Сохраняем ID чата, чтобы написать туда после рестарта."""
+    """Сохраняем ID чата, чтобы написать туда после рестарта контейнера (если он всё-таки был)."""
     try:
         with open(RESTART_STATE_FILE, 'w') as f:
             f.write(str(chat_id))
@@ -53,7 +54,7 @@ def save_restart_state(chat_id):
         logger.error(f"Save state failed: {e}")
 
 async def check_startup_message(app: Application):
-    """Запускается при старте бота."""
+    """Запускается при старте бота внутри контейнера: если контейнер был перезапущен — шлём сообщение."""
     if os.path.exists(RESTART_STATE_FILE):
         try:
             with open(RESTART_STATE_FILE, 'r') as f:
@@ -81,7 +82,13 @@ def read_config() -> Dict[str, str]:
 
 def write_config(key: str, value: str):
     """Прямая запись в файл конфига."""
-    if not os.path.exists(CONFIG_FILE): return
+    if not os.path.exists(CONFIG_FILE):
+        # Если нет файла конфига — создадим структуру папок и пустой файл
+        try:
+            os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
+            open(CONFIG_FILE, 'a').close()
+        except Exception:
+            return
     safe_val = value.replace('/', '\\/').replace('&', '\\&')
     # Проверяем наличие
     ret = subprocess.call(f"grep -q '^{key}=' {CONFIG_FILE}", shell=True, executable='/bin/bash')
@@ -92,21 +99,40 @@ def write_config(key: str, value: str):
     subprocess.run(cmd, shell=True, executable='/bin/bash')
 
 def run_sync(args: str) -> str:
-    """Для команд, которые НЕ убивают контейнер (список юзеров, show user)."""
-    full = BASE_CMD + args
+    """Для команд, которые НЕ убивают контейнер (список юзеров, show user, или пустой вызов для apply)."""
+    # args может быть пустой строкой
+    full = BASE_CMD + (args if args else "")
     try:
         proc = subprocess.Popen(full, shell=True, executable='/bin/bash', stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        out, _ = proc.communicate(timeout=60)
-        return out.decode()
+        out, err = proc.communicate(timeout=120)
+        out_s = out.decode(errors='ignore')
+        err_s = err.decode(errors='ignore')
+        if err_s:
+            # добавляем stderr в вывод, но аккуратно
+            return (out_s + "\n" + err_s).strip()
+        return out_s.strip()
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        return "Команда заняла слишком много времени и была прервана."
     except Exception as e:
         return str(e)
 
+def apply_reconfigure() -> str:
+    """
+    Применяет изменения так же, как делает add-user/delete-user:
+    вызывает скрипт БЕЗ аргументов — скрипт сам сделает generate_config/update_config_file/check_reload
+    и перезапустит только необходимые контейнеры/сервисы.
+    """
+    return run_sync("")
+
 def fire_and_forget_restart():
     """
-    Запускает рестарт и НЕ ждет ответа.
-    Контейнер умрет, Docker его поднимет. Бот проснется и выполнит check_startup_message.
+    Сохранён для совместимости, но НЕ используется для обычного применения настроек,
+    потому что убивает контейнер и бот зависал раньше.
+    Оставляем реализацию на случай, если понадобится реальный -r.
     """
     full = BASE_CMD + "-r"
+    # Запуск в фоне как отделённый процесс (но использование нежелательно)
     subprocess.Popen(full, shell=True, executable='/bin/bash', stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 def get_users():
@@ -114,7 +140,7 @@ def get_users():
     return [l.strip() for l in out.splitlines() if l.strip() and "Using config" not in l and "Error" not in l]
 
 def get_user_conf(name):
-    out = run_sync(f"--show-user {name} | grep -E '://|^\\{{\"dns\"'")
+    out = run_sync(f"--show-user {name} | grep -E '://|^\\{{\"dns\"'")  # старая логика — пусть остаётся
     return [l.strip() for l in out.splitlines() if l.strip()]
 
 def make_backup():
@@ -238,17 +264,26 @@ async def apply_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, para
     else:
         write_config(param, val)
     
-    # 2. Сохраняем стейт и рестартим
-    save_restart_state(chat_id)
-    await context.bot.send_message(chat_id=chat_id, text="⏳ Применяю настройки и перезагружаюсь... (10-15 сек)")
-    fire_and_forget_restart()
+    # 2. Применяем конфиг через внутренний механизм (check_reload внутри скрипта)
+    await context.bot.send_message(chat_id=chat_id, text="⏳ Применяю настройки...")
+    out = apply_reconfigure()
+    # Отправляем результат (обрезаем если слишком длинный)
+    snippet = out if len(out) < 4000 else out[:3900] + "\n... (truncated)"
+    await context.bot.send_message(chat_id=chat_id, text=f"✅ Настройки применены.\n\n<code>{snippet}</code>", parse_mode='HTML')
+    await send_settings_menu(context.bot, chat_id)
 
 @restricted
 async def do_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Кнопка 'Перезапуск служб' — теперь делает то же самое, что и применение настроек:
+    вызывает внутренний механизм скрипта, который перезапускает только нужные контейнеры.
+    """
     chat_id = update.effective_chat.id
-    save_restart_state(chat_id)
-    await context.bot.send_message(chat_id=chat_id, text="⏳ Перезагрузка служб... (10-15 сек)")
-    fire_and_forget_restart()
+    await context.bot.send_message(chat_id=chat_id, text="⏳ Перезапуск служб...")
+    out = apply_reconfigure()
+    snippet = out if len(out) < 4000 else out[:3900] + "\n... (truncated)"
+    await context.bot.send_message(chat_id=chat_id, text=f"✅ Перезапуск завершён.\n\n<code>{snippet}</code>", parse_mode='HTML')
+    await send_settings_menu(context.bot, chat_id)
 
 @restricted
 async def do_backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -295,10 +330,9 @@ async def cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Удалить {arg}?", reply_markup=InlineKeyboardMarkup(kb))
         
     elif cmd == 'confirm_del':
-        # Удаление не требует полного рестарта контейнера (обычно), но если потребует - бот зависнет.
-        # В оригинале add/del юзеров работает быстро. Оставим синхронно.
+        # Удаление не требует полного рестарта контейнера — скрипт сам применит изменения через check_reload.
         run_sync(f'--delete-user {arg}')
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="Удален.")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="✅ Удалён.")
         await menu_users(update, context)
         
     elif cmd == 'ask': await ask_input(update, context, arg)
