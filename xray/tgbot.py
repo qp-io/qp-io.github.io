@@ -24,8 +24,7 @@ from telegram.ext import (
 DATA_DIR = '/opt/reality-ezpz'
 CONFIG_FILE = os.path.join(DATA_DIR, 'config')
 
-# Основная команда запуска.
-# Заглушка systemctl теперь тихая (просто возвращает 0).
+# Основная команда запуска (с тихой заглушкой systemctl)
 BASE_COMMAND = 'function systemctl() { :; }; export -f systemctl; bash <(curl -sL https://raw.githubusercontent.com/qp-io/qp-io.github.io/refs/heads/main/xray/reality-ezpz.sh) '
 
 # Logging
@@ -59,7 +58,7 @@ def run_command(cmd_args: str, timeout: int = 300) -> str:
         
         if process.returncode != 0:
             err_decoded = err.decode().strip()
-            # Игнорируем ошибки systemctl (код 127 или текст), если они все же пролезут
+            # Игнорируем ошибки systemctl (код 127 или текст)
             if "systemctl" in err_decoded and (process.returncode == 127 or "command not found" in err_decoded):
                 pass 
             else:
@@ -72,15 +71,10 @@ def run_command(cmd_args: str, timeout: int = 300) -> str:
         return str(e)
 
 def modify_config_directly(key: str, value: str):
-    """
-    Прямая правка конфига через sed.
-    Нужна для случаев, когда скрипт игнорирует пустые аргументы.
-    """
+    """Прямая правка конфига через sed (для очистки полей)."""
     if not os.path.exists(CONFIG_FILE):
         return
-    # Экранируем слеши для sed
     safe_val = value.replace('/', '\\/')
-    # Если ключ есть, заменяем. Если нет — не добавляем (скрипт сам добавит при рестарте, если нужно, или это не критично)
     cmd = f"sed -i 's/^{key}=.*/{key}={safe_val}/' {CONFIG_FILE}"
     subprocess.run(cmd, shell=True)
 
@@ -262,10 +256,10 @@ async def settings_submenu(update: Update, context: ContextTypes.DEFAULT_TYPE, c
             [InlineKeyboardButton('NoTLS', callback_data='run!security!notls')]
         ]
     elif category == 'warp':
-        text = "Управление WARP:\n\nЕсли 'Бесплатно' не работает, попробуйте 'Выключить', затем снова 'Вкл (Бесплатно)'."
+        # Только 2 кнопки: Включить (просит ключ) и Выключить.
+        text = "Управление WARP:\nДля включения потребуется ввести лицензионный ключ."
         keyboard = [
-            [InlineKeyboardButton('✅ Вкл (Бесплатно)', callback_data='run!enable-warp!true')],
-            [InlineKeyboardButton('🔑 Вкл (С Лицензией)', callback_data='ask!warp_license')],
+            [InlineKeyboardButton('✅ Включить', callback_data='ask!warp_license')],
             [InlineKeyboardButton('❌ Выключить', callback_data='run!enable-warp!false')]
         ]
 
@@ -288,7 +282,6 @@ async def ask_value(update: Update, context: ContextTypes.DEFAULT_TYPE, param: s
     }
     label = labels.get(param, param)
     
-    # Кнопка очистки для Path
     extra_buttons = []
     if param == 'path':
         extra_buttons.append(InlineKeyboardButton('🗑 Очистить (сделать пустым)', callback_data='run!path!EMPTY'))
@@ -306,42 +299,37 @@ async def ask_value(update: Update, context: ContextTypes.DEFAULT_TYPE, param: s
 async def execute_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, param: str, value: str):
     chat_id = update.effective_chat.id
     
-    # 1. Исправление названия флага для лицензии
-    script_flag = param
+    # 1. Логика для WARP
+    # Если введен warp_license, то выполняем команду на включение с лицензией
     if param == 'warp_license':
-        script_flag = 'warp-license'
-
-    # 2. Логика очистки конфига
-    is_clearing_path = (param == 'path' and (value == '/' or value == 'EMPTY' or value == ''))
-    
-    # Если включаем бесплатный WARP, очищаем лицензию в конфиге, чтобы скрипт не ругался
-    if param == 'enable-warp' and value == 'true':
-        modify_config_directly('warp_license', '')
-
-    msg_text = f"⏳ Применяю: <code>--{script_flag} {value}</code>..."
-    if is_clearing_path:
+        # Формируем строку аргументов: включить warp И добавить лицензию
+        args = f"--enable-warp true --warp-license {value}"
+        msg_text = f"⏳ Включаю WARP с лицензией..."
+        
+    # 2. Логика для очистки пути
+    elif param == 'path' and (value == '/' or value == 'EMPTY' or value == ''):
+        modify_config_directly('service_path', '')
+        args = "--restart"
         msg_text = "⏳ Очищаю Path и перезапускаю..."
+        value = "(пусто)"
+        
+    # 3. Обычная логика
+    else:
+        # Исправляем имена флагов если надо (в коде warp_license с _, в bash с -)
+        script_flag = param.replace('_', '-')
+        
+        cmd_val = value if value else "''"
+        args = f"--{script_flag} {cmd_val}"
+        msg_text = f"⏳ Применяю: <code>--{script_flag} {cmd_val}</code>..."
 
     msg = await context.bot.send_message(chat_id=chat_id, text=msg_text, parse_mode='HTML')
     
-    out = ""
-    
-    if is_clearing_path:
-        # Прямая правка конфига для очистки пути
-        modify_config_directly('service_path', '')
-        # Перезапуск для применения
-        out = run_command("--restart")
-        value = "(пусто)"
-    else:
-        # Стандартный запуск
-        # Если значение пустое (но не спец. кейс path), ставим кавычки, чтобы bash не потерял аргумент
-        cmd_val = value if value else "''"
-        out = run_command(f"--{script_flag} {cmd_val}")
+    # Запуск
+    out = run_command(args, timeout=300)
 
     if "Error" in out and "systemctl" not in out:
         text = f"❌ Ошибка:\n<pre>{out}</pre>"
     else:
-        # Успех
         text = f"✅ Успешно! ({param}={value})\n\n<pre>{out[-250:]}</pre>"
         
     await context.bot.edit_message_text(chat_id=chat_id, message_id=msg.message_id, text=text, parse_mode='HTML')
@@ -400,7 +388,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif cmd == 'set_sub': await settings_submenu(update, context, arg1)
     elif cmd == 'ask': await ask_value(update, context, arg1)
     elif cmd == 'run':
-        # Передаем значение. Если нажали кнопку "Очистить" в Path, прилетит arg2="EMPTY"
         val = arg2 if arg2 else ""
         await execute_setting(update, context, arg1, val)
     elif cmd == 'act_backup': await action_backup(update, context)
