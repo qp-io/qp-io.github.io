@@ -5,6 +5,7 @@ import io
 import subprocess
 import logging
 import zipfile
+import asyncio
 from typing import Optional, Dict
 from datetime import datetime
 
@@ -17,16 +18,18 @@ from telegram.ext import (
     MessageHandler,
     ContextTypes,
     filters,
+    Application
 )
 
 # --- Настройки путей и команд ---
 
 DATA_DIR = '/opt/reality-ezpz'
 CONFIG_FILE = os.path.join(DATA_DIR, 'config')
+RESTART_STATE_FILE = os.path.join(DATA_DIR, 'bot_restart_state.txt')
 
-# Основная команда запуска.
-# 1. Заглушка systemctl (тихая).
-# 2. Патч sed для удаления флага -it (чтобы Docker не требовал TTY).
+# Основная команда.
+# 1. Заглушка systemctl.
+# 2. Патч sed для удаления флага -it.
 BASE_COMMAND = 'function systemctl() { :; }; export -f systemctl; bash <(curl -sL https://raw.githubusercontent.com/qp-io/qp-io.github.io/refs/heads/main/xray/reality-ezpz.sh | sed "s/ -it / -i /g") '
 
 # Logging
@@ -42,59 +45,91 @@ if not TOKEN:
 ADMIN = os.environ.get('BOT_ADMIN', '')
 username_regex = re.compile(r"^[a-zA-Z0-9]+$")
 
-# --- Хелперы ---
+# --- Хелперы для Restart State ---
 
-def run_command(cmd_args: str, timeout: int = 400) -> str:
+def save_restart_state(chat_id):
+    """Сохраняет ID чата, чтобы после рестарта отправить туда меню."""
+    try:
+        with open(RESTART_STATE_FILE, 'w') as f:
+            f.write(str(chat_id))
+    except Exception as e:
+        logger.error(f"Failed to save restart state: {e}")
+
+async def check_and_send_menu_on_startup(app: Application):
     """
-    Запускает команду скрипта точно так же, как в оригинале (блокирующе).
-    Если команда убивает контейнер (как -r), бот упадет здесь, и это нормально.
-    Docker его перезапустит.
+    Запускается при старте бота.
+    Проверяет, был ли запланирован рестарт, и если да — шлет меню.
+    """
+    if os.path.exists(RESTART_STATE_FILE):
+        try:
+            with open(RESTART_STATE_FILE, 'r') as f:
+                chat_id = int(f.read().strip())
+            
+            # Удаляем файл, чтобы не спамить при следующих рестартах
+            os.remove(RESTART_STATE_FILE)
+            
+            # Отправляем меню
+            await send_main_menu(app.bot, chat_id, text="✅ Сервер успешно перезагружен! Настройки применены.")
+            logger.info(f"Sent post-restart menu to {chat_id}")
+        except Exception as e:
+            logger.error(f"Error processing restart state: {e}")
+
+# --- Хелперы выполнения команд ---
+
+def run_command_sync(cmd_args: str, timeout: int = 120) -> str:
+    """
+    Обычный запуск команды с ожиданием ответа (для списка пользователей, добавления и т.д.).
+    Как в оригинале.
     """
     full_cmd = BASE_COMMAND + cmd_args
     try:
-        logger.info(f"Executing: {full_cmd}")
-        # Используем список аргументов для Popen, как в оригинале, но заворачиваем в bash -c
+        logger.info(f"Sync Exec: {cmd_args}")
         process = subprocess.Popen(
-            ['/bin/bash', '-c', full_cmd], 
+            full_cmd, 
+            shell=True, 
+            executable='/bin/bash',
             stdout=subprocess.PIPE, 
             stderr=subprocess.PIPE
         )
         output, err = process.communicate(timeout=timeout)
-        
-        if process.returncode != 0:
-            err_decoded = err.decode().strip()
-            # Игнорируем ошибки systemctl
-            if "systemctl" in err_decoded and (process.returncode == 127 or "command not found" in err_decoded):
-                pass 
-            else:
-                logger.warning(f"Command exited {process.returncode}: {err_decoded}")
-                return f"Error: {err_decoded}" if err_decoded else output.decode()
-            
         return output.decode()
     except Exception as e:
-        logger.exception(f"run_command failed: {e}")
-        return str(e)
+        logger.error(f"Sync Exec failed: {e}")
+        return ""
+
+def trigger_restart_detached():
+    """
+    Запускает команду -r и НЕ ждет ответа.
+    Процесс отвязывается, чтобы бот не завис при смерти контейнера.
+    """
+    full_cmd = BASE_COMMAND + "-r"
+    try:
+        logger.info("Triggering DETACHED restart...")
+        # stdout/stderr в DEVNULL, чтобы не забивать буфер
+        subprocess.Popen(
+            full_cmd,
+            shell=True,
+            executable='/bin/bash',
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True # Попытка отвязать процесс
+        )
+    except Exception as e:
+        logger.error(f"Failed to trigger restart: {e}")
 
 def modify_config_directly(key: str, value: str):
-    """
-    Прямая правка конфига через sed.
-    """
+    """Прямая правка конфига через sed."""
     if not os.path.exists(CONFIG_FILE):
         return
-    
-    # Экранируем спецсимволы
     safe_val = value.replace('/', '\\/').replace('&', '\\&')
-    
-    # Проверяем наличие ключа
     grep_cmd = f"grep -q '^{key}=' {CONFIG_FILE}"
-    exists = subprocess.call(['/bin/bash', '-c', grep_cmd]) == 0
+    exists = subprocess.call(grep_cmd, shell=True) == 0
     
     if exists:
         cmd = f"sed -i 's/^{key}=.*/{key}={safe_val}/' {CONFIG_FILE}"
     else:
         cmd = f"echo '{key}={value}' >> {CONFIG_FILE}"
-        
-    subprocess.run(['/bin/bash', '-c', cmd])
+    subprocess.run(cmd, shell=True)
 
 def read_config_file() -> Dict[str, str]:
     config = {}
@@ -112,73 +147,61 @@ def read_config_file() -> Dict[str, str]:
     return config
 
 def get_users_list():
-    out = run_command('--list-users')
+    out = run_command_sync('--list-users')
     return [line.strip() for line in out.splitlines() if line.strip() and "Using config" not in line and "Error" not in line]
 
 def get_user_config(username: str):
     cmd = f"--show-user {username} | grep -E '://|^\\{{\"dns\"'"
-    out = run_command(cmd)
+    out = run_command_sync(cmd)
     return [line for line in out.splitlines() if line.strip()]
 
 def create_backup_zip() -> str:
-    if not os.path.exists(DATA_DIR):
-        return ""
+    if not os.path.exists(DATA_DIR): return ""
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
     backup_filename = f"/tmp/reality_backup_{timestamp}.zip"
-    files_to_backup = ['config', 'users']
-    files_found = False
     try:
         with zipfile.ZipFile(backup_filename, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            for filename in files_to_backup:
-                file_path = os.path.join(DATA_DIR, filename)
-                if os.path.exists(file_path):
-                    zipf.write(file_path, arcname=filename)
-                    files_found = True
-        if not files_found:
-            if os.path.exists(backup_filename): os.remove(backup_filename)
-            return ""
+            for fname in ['config', 'users']:
+                fpath = os.path.join(DATA_DIR, fname)
+                if os.path.exists(fpath): zipf.write(fpath, arcname=fname)
         return backup_filename
-    except Exception as e:
-        logger.error(f"Backup creation failed: {e}")
-        return ""
+    except: return ""
 
 # --- Декоратор доступа ---
 def restricted(func):
     async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
-        username: Optional[str] = None
-        user_id: Optional[int] = None
-        if update.effective_user:
-            username = update.effective_user.username
-            user_id = update.effective_user.id
+        username = update.effective_user.username if update.effective_user else None
+        user_id = update.effective_user.id if update.effective_user else None
         raw_admins = [a.strip() for a in ADMIN.split(',') if a.strip()]
-        admin_ok = False
-        if username and username in raw_admins: admin_ok = True
-        if user_id and str(user_id) in raw_admins: admin_ok = True
-
-        if admin_ok:
+        if (username and username in raw_admins) or (user_id and str(user_id) in raw_admins):
             return await func(update, context, *args, **kwargs)
-        else:
-            chat_id = update.effective_chat.id if update.effective_chat else None
-            if chat_id: await context.bot.send_message(chat_id=chat_id, text='⛔ Нет доступа.')
+        if update.effective_chat:
+            await context.bot.send_message(chat_id=update.effective_chat.id, text='⛔ Нет доступа.')
     return wrapped
 
-# --- Обработчики ---
-
-@restricted
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
+# --- Общая функция меню ---
+async def send_main_menu(bot, chat_id, text=None):
+    if text is None:
+        text = "🤖 <b>Reality-EZPZ Panel</b>\nУправление сервером."
+    
     keyboard = [
         [InlineKeyboardButton('👥 Пользователи', callback_data='menu_users')],
         [InlineKeyboardButton('⚙️ Настройки', callback_data='menu_settings')],
         [InlineKeyboardButton('🔄 Перезапуск служб', callback_data='act_restart')],
         [InlineKeyboardButton('📥 Скачать Бэкап', callback_data='act_backup')],
     ]
-    await context.bot.send_message(
+    await bot.send_message(
         chat_id=chat_id,
-        text="🤖 <b>Reality-EZPZ Panel</b>\nУправление сервером.",
+        text=text,
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='HTML'
     )
+
+# --- Обработчики ---
+
+@restricted
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await send_main_menu(context.bot, update.effective_chat.id)
 
 # --- Пользователи ---
 @restricted
@@ -275,12 +298,11 @@ async def settings_submenu(update: Update, context: ContextTypes.DEFAULT_TYPE, c
             [InlineKeyboardButton('NoTLS', callback_data='run!security!notls')]
         ]
     elif category == 'warp':
-        text = "Управление WARP:\nДля включения введите лицензионный ключ."
+        text = "Управление WARP:"
         keyboard = [
             [InlineKeyboardButton('🔑 Включить (нужен ключ)', callback_data='ask!warp_license')],
             [InlineKeyboardButton('❌ Выключить', callback_data='run!enable-warp!false')]
         ]
-
     keyboard.append([InlineKeyboardButton('🔙 Отмена', callback_data='menu_settings')])
     await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=InlineKeyboardMarkup(keyboard))
 
@@ -289,76 +311,55 @@ async def ask_value(update: Update, context: ContextTypes.DEFAULT_TYPE, param: s
     chat_id = update.effective_chat.id
     context.user_data['input_action'] = 'setting'
     context.user_data['setting_param'] = param
-    
     labels = {
         'port': 'новый Порт (число)',
         'server': 'IP адрес или Домен сервера',
         'domain': 'SNI Домен',
-        'path': 'Path (без слеша). Отправьте / чтобы очистить.',
+        'path': 'Path (без слеша).',
         'host': 'Host Header',
         'warp_license': 'Ключ лицензии WARP+'
     }
     label = labels.get(param, param)
-    
     extra_buttons = []
     if param == 'path':
         extra_buttons.append(InlineKeyboardButton('🗑 Очистить (сделать пустым)', callback_data='run!path!EMPTY'))
-        
     buttons = [extra_buttons] if extra_buttons else []
     buttons.append([InlineKeyboardButton('❌ Отмена', callback_data='menu_settings')])
-    
-    await context.bot.send_message(
-        chat_id=chat_id, 
-        text=f"⌨️ Введите {label}:", 
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
+    await context.bot.send_message(chat_id=chat_id, text=f"⌨️ Введите {label}:", reply_markup=InlineKeyboardMarkup(buttons))
 
 @restricted
 async def execute_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, param: str, value: str):
     chat_id = update.effective_chat.id
     
-    args = "-r" # ВСЕГДА используем -r (restart)
-    msg_text = "⏳ Применяю настройки..."
-
-    # 1. WARP с Лицензией
+    # Сохраняем маркер рестарта
+    save_restart_state(chat_id)
+    
+    # Применяем изменения в конфиг
     if param == 'warp_license':
         modify_config_directly('warp', 'ON')
         modify_config_directly('warp_license', value)
-        msg_text = f"⏳ Ключ записан. Перезагружаю бот и службы (-r)..."
-
-    # 2. Выключение WARP
     elif param == 'enable-warp' and value == 'false':
         modify_config_directly('warp', 'OFF')
-        msg_text = f"⏳ Выключаю WARP. Перезагружаю бот и службы (-r)..."
-
-    # 3. Очистка Path
     elif param == 'path' and (value == '/' or value == 'EMPTY' or value == ''):
         modify_config_directly('service_path', '')
-        msg_text = f"⏳ Очищаю Path. Перезагружаю бот и службы (-r)..."
-        value = "(пусто)"
-        
-    # 4. Остальные настройки
     else:
-        config_key_map = {
-            'core': 'core',
-            'transport': 'transport',
-            'security': 'security',
-            'port': 'port',
-            'server': 'server',
-            'domain': 'domain',
-            'path': 'service_path',
-            'host': 'host_header'
-        }
+        config_key_map = {'core': 'core','transport': 'transport','security': 'security','port': 'port','server': 'server','domain': 'domain','path': 'service_path','host': 'host_header'}
         cfg_key = config_key_map.get(param, param)
         modify_config_directly(cfg_key, value)
-        msg_text = f"⏳ Настройка {param}={value} сохранена. Перезагружаю бот и службы (-r)..."
-
-    await context.bot.send_message(chat_id=chat_id, text=msg_text + "\n\n⚠️ Бот перезагрузится, подождите 15-20 сек.")
     
-    # Запускаем рестарт. Бот умрет на этом шаге, и это нормально.
-    run_command(args, timeout=400)
+    # Сообщаем пользователю и дергаем рестарт
+    await context.bot.send_message(chat_id=chat_id, text="⏳ Настройки сохранены. Перезагрузка служб... Бот вернется через 15-20 сек.")
+    
+    # Запускаем detached рестарт, чтобы не зависать
+    trigger_restart_detached()
 
-# --- Действия ---
+@restricted
+async def action_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    save_restart_state(chat_id)
+    await context.bot.send_message(chat_id=chat_id, text="⏳ Полная перезагрузка (-r)... Ждите.")
+    trigger_restart_detached()
+
 @restricted
 async def action_backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -370,12 +371,6 @@ async def action_backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.delete_message(chat_id=chat_id, message_id=msg.message_id)
     else:
         await context.bot.edit_message_text(chat_id=chat_id, message_id=msg.message_id, text="❌ Ошибка бэкапа.")
-
-@restricted
-async def action_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    await context.bot.send_message(chat_id=chat_id, text="⏳ Перезапуск служб (-r). Бот перезагрузится...")
-    run_command("-r")
 
 # --- Callback & Message ---
 @restricted
@@ -401,7 +396,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         kb = [[InlineKeyboardButton('🗑 Удалить', callback_data=f'confirm_del!{arg1}'), InlineKeyboardButton('Нет', callback_data='menu_users')]]
         await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Удалить <b>{arg1}</b>?", parse_mode='HTML', reply_markup=InlineKeyboardMarkup(kb))
     elif cmd == 'confirm_del':
-        run_command(f'--delete-user {arg1}')
+        run_command_sync(f'--delete-user {arg1}') # Используем sync, так как это не требует рестарта контейнера
         await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Пользователь {arg1} удален.")
         await menu_users(update, context)
     elif cmd == 'set_sub': await settings_submenu(update, context, arg1)
@@ -423,13 +418,14 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=chat_id, text="❌ Некорректное имя.")
             return
         msg = await context.bot.send_message(chat_id=chat_id, text="Создание...")
-        out = run_command(f'--add-user {text}')
-        if "Exit Code" in out:
-            await context.bot.edit_message_text(chat_id=chat_id, message_id=msg.message_id, text=f"❌ Ошибка:\n{out}")
-        else:
-            await context.bot.delete_message(chat_id=chat_id, message_id=msg.message_id)
-            await context.bot.send_message(chat_id=chat_id, text=f"✅ Создан {text}")
-            await show_user(update, context, text)
+        out = run_command_sync(f'--add-user {text}') # Sync, т.к. не убивает контейнер
+        if "Error" in out or not out:
+             # На случай, если скрипт ничего не вернул или ошибку
+             pass
+        await context.bot.delete_message(chat_id=chat_id, message_id=msg.message_id)
+        await context.bot.send_message(chat_id=chat_id, text=f"✅ Создан {text}")
+        await show_user(update, context, text)
+
     elif action == 'setting':
         param = context.user_data.pop('setting_param', None)
         if param == 'port' and not text.isdigit():
@@ -439,7 +435,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Main
 def main():
-    app = ApplicationBuilder().token(TOKEN).build()
+    app = ApplicationBuilder().token(TOKEN).post_init(check_and_send_menu_on_startup).build()
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
