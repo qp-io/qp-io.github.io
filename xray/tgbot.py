@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import os
 import re
-import io
 import subprocess
 import logging
 import zipfile
@@ -21,424 +20,349 @@ from telegram.ext import (
     Application
 )
 
-# --- Настройки путей и команд ---
+# --- Пути и Команды ---
 
 DATA_DIR = '/opt/reality-ezpz'
 CONFIG_FILE = os.path.join(DATA_DIR, 'config')
 RESTART_STATE_FILE = os.path.join(DATA_DIR, 'bot_restart_state.txt')
 
-# Основная команда.
-# 1. Заглушка systemctl.
-# 2. Патч sed для удаления флага -it.
-BASE_COMMAND = 'function systemctl() { :; }; export -f systemctl; bash <(curl -sL https://raw.githubusercontent.com/qp-io/qp-io.github.io/refs/heads/main/xray/reality-ezpz.sh | sed "s/ -it / -i /g") '
+# Команда запуска с патчами:
+# 1. Заглушка systemctl (тихая).
+# 2. sed удаляет -it, чтобы не требовался TTY.
+BASE_CMD = 'function systemctl() { :; }; export -f systemctl; bash <(curl -sL https://raw.githubusercontent.com/qp-io/qp-io.github.io/refs/heads/main/xray/reality-ezpz.sh | sed "s/ -it / -i /g") '
 
 # Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Токен и Админ
+# Config
 TOKEN = os.environ.get('BOT_TOKEN')
 if not TOKEN:
-    logger.error("BOT_TOKEN env is not set")
     raise SystemExit("BOT_TOKEN env is not set")
-
 ADMIN = os.environ.get('BOT_ADMIN', '')
 username_regex = re.compile(r"^[a-zA-Z0-9]+$")
 
-# --- Хелперы для Restart State ---
+# --- Управление состоянием (для приветствия после рестарта) ---
 
 def save_restart_state(chat_id):
-    """Сохраняет ID чата, чтобы после рестарта отправить туда меню."""
+    """Сохраняем ID чата, чтобы написать туда после рестарта."""
     try:
         with open(RESTART_STATE_FILE, 'w') as f:
             f.write(str(chat_id))
     except Exception as e:
-        logger.error(f"Failed to save restart state: {e}")
+        logger.error(f"Save state failed: {e}")
 
-async def check_and_send_menu_on_startup(app: Application):
-    """
-    Запускается при старте бота.
-    Проверяет, был ли запланирован рестарт, и если да — шлет меню.
-    """
+async def check_startup_message(app: Application):
+    """Запускается при старте бота."""
     if os.path.exists(RESTART_STATE_FILE):
         try:
             with open(RESTART_STATE_FILE, 'r') as f:
                 chat_id = int(f.read().strip())
-            
-            # Удаляем файл, чтобы не спамить при следующих рестартах
             os.remove(RESTART_STATE_FILE)
-            
-            # Отправляем меню
-            await send_main_menu(app.bot, chat_id, text="✅ Сервер успешно перезагружен! Настройки применены.")
-            logger.info(f"Sent post-restart menu to {chat_id}")
-        except Exception as e:
-            logger.error(f"Error processing restart state: {e}")
+            # Отправляем главное меню
+            await send_settings_menu(app.bot, chat_id, text="✅ Сервер успешно перезагружен! Настройки применены.")
+        except Exception:
+            pass
 
-# --- Хелперы выполнения команд ---
+# --- Работа с конфигом и системой ---
 
-def run_command_sync(cmd_args: str, timeout: int = 120) -> str:
-    """
-    Обычный запуск команды с ожиданием ответа (для списка пользователей, добавления и т.д.).
-    Как в оригинале.
-    """
-    full_cmd = BASE_COMMAND + cmd_args
-    try:
-        logger.info(f"Sync Exec: {cmd_args}")
-        process = subprocess.Popen(
-            full_cmd, 
-            shell=True, 
-            executable='/bin/bash',
-            stdout=subprocess.PIPE, 
-            stderr=subprocess.PIPE
-        )
-        output, err = process.communicate(timeout=timeout)
-        return output.decode()
-    except Exception as e:
-        logger.error(f"Sync Exec failed: {e}")
-        return ""
-
-def trigger_restart_detached():
-    """
-    Запускает команду -r и НЕ ждет ответа.
-    Процесс отвязывается, чтобы бот не завис при смерти контейнера.
-    """
-    full_cmd = BASE_COMMAND + "-r"
-    try:
-        logger.info("Triggering DETACHED restart...")
-        # stdout/stderr в DEVNULL, чтобы не забивать буфер
-        subprocess.Popen(
-            full_cmd,
-            shell=True,
-            executable='/bin/bash',
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True # Попытка отвязать процесс
-        )
-    except Exception as e:
-        logger.error(f"Failed to trigger restart: {e}")
-
-def modify_config_directly(key: str, value: str):
-    """Прямая правка конфига через sed."""
-    if not os.path.exists(CONFIG_FILE):
-        return
-    safe_val = value.replace('/', '\\/').replace('&', '\\&')
-    grep_cmd = f"grep -q '^{key}=' {CONFIG_FILE}"
-    exists = subprocess.call(grep_cmd, shell=True) == 0
-    
-    if exists:
-        cmd = f"sed -i 's/^{key}=.*/{key}={safe_val}/' {CONFIG_FILE}"
-    else:
-        cmd = f"echo '{key}={value}' >> {CONFIG_FILE}"
-    subprocess.run(cmd, shell=True)
-
-def read_config_file() -> Dict[str, str]:
+def read_config() -> Dict[str, str]:
     config = {}
-    if not os.path.exists(CONFIG_FILE):
-        return config
+    if not os.path.exists(CONFIG_FILE): return config
     try:
         with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
             for line in f:
                 line = line.strip()
                 if '=' in line and not line.startswith('#'):
-                    key, val = line.split('=', 1)
-                    config[key.strip()] = val.strip().strip('"').strip("'")
-    except Exception as e:
-        logger.error(f"Error reading config file: {e}")
+                    k, v = line.split('=', 1)
+                    config[k.strip()] = v.strip().strip('"').strip("'")
+    except: pass
     return config
 
-def get_users_list():
-    out = run_command_sync('--list-users')
-    return [line.strip() for line in out.splitlines() if line.strip() and "Using config" not in line and "Error" not in line]
+def write_config(key: str, value: str):
+    """Прямая запись в файл конфига."""
+    if not os.path.exists(CONFIG_FILE): return
+    safe_val = value.replace('/', '\\/').replace('&', '\\&')
+    # Проверяем наличие
+    ret = subprocess.call(f"grep -q '^{key}=' {CONFIG_FILE}", shell=True, executable='/bin/bash')
+    if ret == 0:
+        cmd = f"sed -i 's/^{key}=.*/{key}={safe_val}/' {CONFIG_FILE}"
+    else:
+        cmd = f"echo '{key}={value}' >> {CONFIG_FILE}"
+    subprocess.run(cmd, shell=True, executable='/bin/bash')
 
-def get_user_config(username: str):
-    cmd = f"--show-user {username} | grep -E '://|^\\{{\"dns\"'"
-    out = run_command_sync(cmd)
-    return [line for line in out.splitlines() if line.strip()]
-
-def create_backup_zip() -> str:
-    if not os.path.exists(DATA_DIR): return ""
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-    backup_filename = f"/tmp/reality_backup_{timestamp}.zip"
+def run_sync(args: str) -> str:
+    """Для команд, которые НЕ убивают контейнер (список юзеров, show user)."""
+    full = BASE_CMD + args
     try:
-        with zipfile.ZipFile(backup_filename, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            for fname in ['config', 'users']:
-                fpath = os.path.join(DATA_DIR, fname)
-                if os.path.exists(fpath): zipf.write(fpath, arcname=fname)
-        return backup_filename
-    except: return ""
+        proc = subprocess.Popen(full, shell=True, executable='/bin/bash', stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        out, _ = proc.communicate(timeout=60)
+        return out.decode()
+    except Exception as e:
+        return str(e)
 
-# --- Декоратор доступа ---
+def fire_and_forget_restart():
+    """
+    Запускает рестарт и НЕ ждет ответа.
+    Контейнер умрет, Docker его поднимет. Бот проснется и выполнит check_startup_message.
+    """
+    full = BASE_CMD + "-r"
+    subprocess.Popen(full, shell=True, executable='/bin/bash', stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+def get_users():
+    out = run_sync('--list-users')
+    return [l.strip() for l in out.splitlines() if l.strip() and "Using config" not in l and "Error" not in l]
+
+def get_user_conf(name):
+    out = run_sync(f"--show-user {name} | grep -E '://|^\\{{\"dns\"'")
+    return [l.strip() for l in out.splitlines() if l.strip()]
+
+def make_backup():
+    if not os.path.exists(DATA_DIR): return None
+    ts = datetime.now().strftime("%Y-%m-%d_%H-%M")
+    fname = f"/tmp/backup_{ts}.zip"
+    try:
+        with zipfile.ZipFile(fname, 'w', zipfile.ZIP_DEFLATED) as z:
+            for f in ['config', 'users']:
+                p = os.path.join(DATA_DIR, f)
+                if os.path.exists(p): z.write(p, arcname=f)
+        return fname
+    except: return None
+
+# --- Декоратор ---
 def restricted(func):
     async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
-        username = update.effective_user.username if update.effective_user else None
-        user_id = update.effective_user.id if update.effective_user else None
-        raw_admins = [a.strip() for a in ADMIN.split(',') if a.strip()]
-        if (username and username in raw_admins) or (user_id and str(user_id) in raw_admins):
+        u = update.effective_user
+        uid = u.id if u else 0
+        uname = u.username if u else ""
+        admins = [a.strip() for a in ADMIN.split(',') if a.strip()]
+        if str(uid) in admins or (uname and uname in admins):
             return await func(update, context, *args, **kwargs)
         if update.effective_chat:
-            await context.bot.send_message(chat_id=update.effective_chat.id, text='⛔ Нет доступа.')
+            await context.bot.send_message(chat_id=update.effective_chat.id, text='⛔ Нет доступа')
     return wrapped
 
-# --- Общая функция меню ---
-async def send_main_menu(bot, chat_id, text=None):
-    if text is None:
-        text = "🤖 <b>Reality-EZPZ Panel</b>\nУправление сервером."
-    
-    keyboard = [
-        [InlineKeyboardButton('👥 Пользователи', callback_data='menu_users')],
-        [InlineKeyboardButton('⚙️ Настройки', callback_data='menu_settings')],
-        [InlineKeyboardButton('🔄 Перезапуск служб', callback_data='act_restart')],
-        [InlineKeyboardButton('📥 Скачать Бэкап', callback_data='act_backup')],
-    ]
-    await bot.send_message(
-        chat_id=chat_id,
-        text=text,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='HTML'
-    )
+# --- Меню ---
 
-# --- Обработчики ---
+async def send_main_menu(bot, chat_id, text=None):
+    if not text: text = "🤖 <b>Reality-EZPZ</b>"
+    kb = [
+        [InlineKeyboardButton('👥 Пользователи', callback_data='m_users')],
+        [InlineKeyboardButton('⚙️ Настройки', callback_data='m_settings')],
+        [InlineKeyboardButton('📥 Бэкап', callback_data='do_backup')]
+    ]
+    await bot.send_message(chat_id=chat_id, text=text, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
+
+async def send_settings_menu(bot, chat_id, text=None):
+    c = read_config()
+    warp_status = c.get('warp', 'OFF')
+    
+    if not text:
+        text = (
+            "⚙️ <b>Настройки</b>\n\n"
+            f"Core: <code>{c.get('core','?')}</code>\n"
+            f"Transport: <code>{c.get('transport','?')}</code>\n"
+            f"Security: <code>{c.get('security','?')}</code>\n"
+            f"Port: <code>{c.get('port','?')}</code>\n"
+            f"SNI: <code>{c.get('domain','?')}</code>\n"
+            f"Path: <code>/{c.get('service_path','')}</code>\n"
+            f"WARP: <b>{warp_status}</b>"
+        )
+
+    # Динамическая кнопка WARP
+    if warp_status == 'ON':
+        warp_btn = InlineKeyboardButton('❌ Выключить WARP', callback_data='set!warp!OFF')
+    else:
+        warp_btn = InlineKeyboardButton('🔑 Включить WARP', callback_data='ask!warp_license')
+
+    kb = [
+        [InlineKeyboardButton('Core', callback_data='sub!core'), InlineKeyboardButton('Transport', callback_data='sub!transport')],
+        [InlineKeyboardButton('Security', callback_data='sub!security'), warp_btn],
+        [InlineKeyboardButton('Port', callback_data='ask!port'), InlineKeyboardButton('SNI', callback_data='ask!domain')],
+        [InlineKeyboardButton('Path', callback_data='ask!path'), InlineKeyboardButton('Host', callback_data='ask!host_header')],
+        [InlineKeyboardButton('🔄 Перезапуск служб', callback_data='do_restart')],
+        [InlineKeyboardButton('🔙 Главное меню', callback_data='main')]
+    ]
+    await bot.send_message(chat_id=chat_id, text=text, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
+
+# --- Handlers ---
 
 @restricted
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_main_menu(context.bot, update.effective_chat.id)
 
-# --- Пользователи ---
 @restricted
 async def menu_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [InlineKeyboardButton('📜 Список / QR', callback_data='u_list')],
-        [InlineKeyboardButton('➕ Добавить', callback_data='u_add')],
-        [InlineKeyboardButton('➖ Удалить', callback_data='u_del_menu')],
-        [InlineKeyboardButton('🔙 Назад', callback_data='start')],
+    kb = [
+        [InlineKeyboardButton('📜 Список', callback_data='u_list'), InlineKeyboardButton('➕ Добавить', callback_data='u_add')],
+        [InlineKeyboardButton('➖ Удалить', callback_data='u_del_m'), InlineKeyboardButton('🔙 Назад', callback_data='main')]
     ]
-    await context.bot.send_message(chat_id=update.effective_chat.id, text="👥 <b>Меню Пользователей</b>", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="👥 <b>Пользователи</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
 
 @restricted
-async def users_list_action(update: Update, context: ContextTypes.DEFAULT_TYPE, mode: str):
-    users = get_users_list()
-    keyboard = []
-    cb = "show_user" if mode == 'show' else "del_user"
+async def users_action(update: Update, context: ContextTypes.DEFAULT_TYPE, mode: str):
+    users = get_users()
+    kb = []
+    cb = "u_show" if mode == 'show' else "u_del"
     if not users:
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="Нет пользователей.")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Пусто.")
         return
     for u in users:
-        keyboard.append([InlineKeyboardButton(u, callback_data=f'{cb}!{u}')])
-    keyboard.append([InlineKeyboardButton('🔙 Назад', callback_data='menu_users')])
-    text = "Выберите пользователя:" if mode == 'show' else "Кого удалить:"
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=InlineKeyboardMarkup(keyboard))
+        kb.append([InlineKeyboardButton(u, callback_data=f'{cb}!{u}')])
+    kb.append([InlineKeyboardButton('🔙 Назад', callback_data='m_users')])
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="Выберите:", reply_markup=InlineKeyboardMarkup(kb))
 
 @restricted
-async def show_user(update: Update, context: ContextTypes.DEFAULT_TYPE, username: str):
-    chat_id = update.effective_chat.id
-    msg = await context.bot.send_message(chat_id=chat_id, text=f"⏳ Получаю конфиг для <b>{username}</b>...", parse_mode='HTML')
-    configs = get_user_config(username)
-    await context.bot.delete_message(chat_id=chat_id, message_id=msg.message_id)
-    if not configs:
-        await context.bot.send_message(chat_id=chat_id, text="❌ Ошибка получения конфига.")
-        return
-    back_markup = InlineKeyboardMarkup([[InlineKeyboardButton('🔙 К списку', callback_data='u_list')]])
-    for conf in configs:
-        if not conf.strip(): continue
-        qr = qrcode.make(conf)
-        bio = io.BytesIO()
-        qr.save(bio, 'PNG')
-        bio.seek(0)
-        await context.bot.send_photo(chat_id=chat_id, photo=bio, caption=f"<code>{conf}</code>", parse_mode='HTML', reply_markup=back_markup)
-
-# --- Настройки ---
-@restricted
-async def menu_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    conf = read_config_file()
-    info = (
-        "⚙️ <b>Настройки</b>\n\n"
-        f"🔹 <b>Core:</b> {conf.get('core', '?')}\n"
-        f"🔹 <b>Transport:</b> {conf.get('transport', '?')}\n"
-        f"🔹 <b>Security:</b> {conf.get('security', '?')}\n"
-        f"🔹 <b>Port:</b> {conf.get('port', '?')}\n"
-        f"🔹 <b>SNI:</b> {conf.get('domain', '?')}\n"
-        f"🔹 <b>Path:</b> /{conf.get('service_path', '')}\n"
-        f"🔹 <b>Host:</b> {conf.get('host_header', '-')}\n"
-        f"🔹 <b>Warp:</b> {conf.get('warp', 'OFF')}\n"
-        f"🔹 <b>License:</b> {conf.get('warp_license', '-')}\n"
-    )
-    keyboard = [
-        [InlineKeyboardButton('Core (Ядро)', callback_data='set_sub!core'), InlineKeyboardButton('Transport', callback_data='set_sub!transport')],
-        [InlineKeyboardButton('Security', callback_data='set_sub!security'), InlineKeyboardButton('Warp', callback_data='set_sub!warp')],
-        [InlineKeyboardButton('Server IP', callback_data='ask!server'), InlineKeyboardButton('Port', callback_data='ask!port')],
-        [InlineKeyboardButton('SNI Domain', callback_data='ask!domain'), InlineKeyboardButton('Path', callback_data='ask!path')],
-        [InlineKeyboardButton('Host Header', callback_data='ask!host')],
-        [InlineKeyboardButton('🔙 Назад', callback_data='start')]
-    ]
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=info, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
+async def ask_input(update: Update, context: ContextTypes.DEFAULT_TYPE, param: str):
+    context.user_data['state'] = 'setting'
+    context.user_data['param'] = param
+    
+    txt = f"Введите значение для <b>{param}</b>:"
+    if param == 'path': txt += "\n(Отправьте / для очистки)"
+    
+    kb = [[InlineKeyboardButton('Отмена', callback_data='m_settings')]]
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=txt, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
 
 @restricted
-async def settings_submenu(update: Update, context: ContextTypes.DEFAULT_TYPE, category: str):
-    keyboard = []
-    text = ""
-    if category == 'core':
-        text = "Выберите ядро (Core):"
-        keyboard = [[InlineKeyboardButton('Xray', callback_data='run!core!xray')], [InlineKeyboardButton('Sing-Box', callback_data='run!core!sing-box')]]
-    elif category == 'transport':
-        text = "Выберите транспорт:"
-        opts = ['tcp', 'http', 'grpc', 'ws', 'xhttp', 'tuic', 'hysteria2', 'shadowtls']
-        row = []
-        for opt in opts:
-            row.append(InlineKeyboardButton(opt, callback_data=f'run!transport!{opt}'))
-            if len(row) == 2:
-                keyboard.append(row)
-                row = []
-        if row: keyboard.append(row)
-    elif category == 'security':
-        text = "Выберите безопасность:"
-        keyboard = [
-            [InlineKeyboardButton('Reality', callback_data='run!security!reality')],
-            [InlineKeyboardButton('LetsEncrypt', callback_data='run!security!letsencrypt')],
-            [InlineKeyboardButton('SelfSigned', callback_data='run!security!selfsigned')],
-            [InlineKeyboardButton('NoTLS', callback_data='run!security!notls')]
-        ]
-    elif category == 'warp':
-        text = "Управление WARP:"
-        keyboard = [
-            [InlineKeyboardButton('🔑 Включить (нужен ключ)', callback_data='ask!warp_license')],
-            [InlineKeyboardButton('❌ Выключить', callback_data='run!enable-warp!false')]
-        ]
-    keyboard.append([InlineKeyboardButton('🔙 Отмена', callback_data='menu_settings')])
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=InlineKeyboardMarkup(keyboard))
-
-@restricted
-async def ask_value(update: Update, context: ContextTypes.DEFAULT_TYPE, param: str):
-    chat_id = update.effective_chat.id
-    context.user_data['input_action'] = 'setting'
-    context.user_data['setting_param'] = param
-    labels = {
-        'port': 'новый Порт (число)',
-        'server': 'IP адрес или Домен сервера',
-        'domain': 'SNI Домен',
-        'path': 'Path (без слеша).',
-        'host': 'Host Header',
-        'warp_license': 'Ключ лицензии WARP+'
-    }
-    label = labels.get(param, param)
-    extra_buttons = []
-    if param == 'path':
-        extra_buttons.append(InlineKeyboardButton('🗑 Очистить (сделать пустым)', callback_data='run!path!EMPTY'))
-    buttons = [extra_buttons] if extra_buttons else []
-    buttons.append([InlineKeyboardButton('❌ Отмена', callback_data='menu_settings')])
-    await context.bot.send_message(chat_id=chat_id, text=f"⌨️ Введите {label}:", reply_markup=InlineKeyboardMarkup(buttons))
-
-@restricted
-async def execute_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, param: str, value: str):
+async def apply_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, param: str, val: str):
     chat_id = update.effective_chat.id
     
-    # Сохраняем маркер рестарта
-    save_restart_state(chat_id)
-    
-    # Применяем изменения в конфиг
+    # 1. Запись в конфиг
     if param == 'warp_license':
-        modify_config_directly('warp', 'ON')
-        modify_config_directly('warp_license', value)
-    elif param == 'enable-warp' and value == 'false':
-        modify_config_directly('warp', 'OFF')
-    elif param == 'path' and (value == '/' or value == 'EMPTY' or value == ''):
-        modify_config_directly('service_path', '')
+        write_config('warp', 'ON')
+        write_config('warp_license', val)
+    elif param == 'warp' and val == 'OFF':
+        write_config('warp', 'OFF')
+    elif param == 'service_path' and (val == '/' or val == ''):
+        write_config('service_path', '')
     else:
-        config_key_map = {'core': 'core','transport': 'transport','security': 'security','port': 'port','server': 'server','domain': 'domain','path': 'service_path','host': 'host_header'}
-        cfg_key = config_key_map.get(param, param)
-        modify_config_directly(cfg_key, value)
+        write_config(param, val)
     
-    # Сообщаем пользователю и дергаем рестарт
-    await context.bot.send_message(chat_id=chat_id, text="⏳ Настройки сохранены. Перезагрузка служб... Бот вернется через 15-20 сек.")
-    
-    # Запускаем detached рестарт, чтобы не зависать
-    trigger_restart_detached()
+    # 2. Сохраняем стейт и рестартим
+    save_restart_state(chat_id)
+    await context.bot.send_message(chat_id=chat_id, text="⏳ Применяю настройки и перезагружаюсь... (10-15 сек)")
+    fire_and_forget_restart()
 
 @restricted
-async def action_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def do_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     save_restart_state(chat_id)
-    await context.bot.send_message(chat_id=chat_id, text="⏳ Полная перезагрузка (-r)... Ждите.")
-    trigger_restart_detached()
+    await context.bot.send_message(chat_id=chat_id, text="⏳ Перезагрузка служб... (10-15 сек)")
+    fire_and_forget_restart()
 
 @restricted
-async def action_backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def do_backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    msg = await context.bot.send_message(chat_id=chat_id, text="⏳ Создаю архив...")
-    path = create_backup_zip()
-    if path and os.path.exists(path):
-        await context.bot.send_document(chat_id=chat_id, document=open(path, 'rb'), filename="reality_backup.zip", caption="✅ Бэкап готов.")
+    msg = await context.bot.send_message(chat_id=chat_id, text="📦 Архивация...")
+    path = make_backup()
+    if path:
+        await context.bot.send_document(chat_id=chat_id, document=open(path, 'rb'), filename="backup.zip")
         os.remove(path)
         await context.bot.delete_message(chat_id=chat_id, message_id=msg.message_id)
     else:
-        await context.bot.edit_message_text(chat_id=chat_id, message_id=msg.message_id, text="❌ Ошибка бэкапа.")
+        await context.bot.edit_message_text(chat_id=chat_id, message_id=msg.message_id, text="❌ Ошибка бэкапа")
 
-# --- Callback & Message ---
+# --- Callbacks ---
 @restricted
-async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    data = query.data
-    parts = data.split('!')
-    cmd = parts[0]
-    arg1 = parts[1] if len(parts) > 1 else ""
-    arg2 = parts[2] if len(parts) > 2 else ""
+    data = query.data.split('!')
+    cmd = data[0]
+    arg = data[1] if len(data)>1 else ""
+    arg2 = data[2] if len(data)>2 else ""
 
-    if cmd == 'start': await start(update, context)
-    elif cmd == 'menu_users': await menu_users(update, context)
-    elif cmd == 'menu_settings': await menu_settings(update, context)
-    elif cmd == 'u_list': await users_list_action(update, context, 'show')
-    elif cmd == 'u_del_menu': await users_list_action(update, context, 'delete')
-    elif cmd == 'u_add':
-        context.user_data['input_action'] = 'add_user'
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="Введите имя нового пользователя:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('Отмена', callback_data='menu_users')]]))
-    elif cmd == 'show_user': await show_user(update, context, arg1)
-    elif cmd == 'del_user':
-        kb = [[InlineKeyboardButton('🗑 Удалить', callback_data=f'confirm_del!{arg1}'), InlineKeyboardButton('Нет', callback_data='menu_users')]]
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Удалить <b>{arg1}</b>?", parse_mode='HTML', reply_markup=InlineKeyboardMarkup(kb))
-    elif cmd == 'confirm_del':
-        run_command_sync(f'--delete-user {arg1}') # Используем sync, так как это не требует рестарта контейнера
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Пользователь {arg1} удален.")
-        await menu_users(update, context)
-    elif cmd == 'set_sub': await settings_submenu(update, context, arg1)
-    elif cmd == 'ask': await ask_value(update, context, arg1)
-    elif cmd == 'run':
-        val = arg2 if arg2 else ""
-        await execute_setting(update, context, arg1, val)
-    elif cmd == 'act_backup': await action_backup(update, context)
-    elif cmd == 'act_restart': await action_restart(update, context)
-
-@restricted
-async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    action = context.user_data.pop('input_action', None)
-    chat_id = update.effective_chat.id
-    text = update.message.text.strip()
+    if cmd == 'main': await send_main_menu(context.bot, update.effective_chat.id)
+    elif cmd == 'm_users': await menu_users(update, context)
+    elif cmd == 'm_settings': await send_settings_menu(context.bot, update.effective_chat.id)
+    elif cmd == 'u_list': await users_action(update, context, 'show')
+    elif cmd == 'u_del_m': await users_action(update, context, 'del')
     
-    if action == 'add_user':
+    elif cmd == 'u_show':
+        confs = get_user_conf(arg)
+        for c in confs:
+            if not c: continue
+            qr = qrcode.make(c)
+            bio = io.BytesIO(); qr.save(bio, 'PNG'); bio.seek(0)
+            await context.bot.send_photo(chat_id=update.effective_chat.id, photo=bio, caption=f"<code>{c}</code>", parse_mode='HTML')
+            
+    elif cmd == 'u_add':
+        context.user_data['state'] = 'add_user'
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Введите имя:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('Отмена', callback_data='m_users')]]))
+        
+    elif cmd == 'u_del':
+        kb = [[InlineKeyboardButton('Да', callback_data=f'confirm_del!{arg}'), InlineKeyboardButton('Нет', callback_data='m_users')]]
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Удалить {arg}?", reply_markup=InlineKeyboardMarkup(kb))
+        
+    elif cmd == 'confirm_del':
+        # Удаление не требует полного рестарта контейнера (обычно), но если потребует - бот зависнет.
+        # В оригинале add/del юзеров работает быстро. Оставим синхронно.
+        run_sync(f'--delete-user {arg}')
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Удален.")
+        await menu_users(update, context)
+        
+    elif cmd == 'ask': await ask_input(update, context, arg)
+    elif cmd == 'set': await apply_setting(update, context, arg, arg2) # set!warp!OFF
+    
+    elif cmd == 'sub': # Submenu for Core, Transport etc
+        kb = []
+        if arg == 'core':
+            kb = [[InlineKeyboardButton('Xray', callback_data='set!core!xray'), InlineKeyboardButton('Sing-Box', callback_data='set!core!sing-box')]]
+        elif arg == 'transport':
+             opts = ['tcp','http','grpc','ws','xhttp','tuic','hysteria2','shadowtls']
+             kb = [ [InlineKeyboardButton(o, callback_data=f'set!transport!{o}') for o in opts[i:i+3]] for i in range(0, len(opts), 3) ]
+        elif arg == 'security':
+             kb = [[InlineKeyboardButton(o, callback_data=f'set!security!{o}')] for o in ['reality','letsencrypt','selfsigned','notls']]
+        
+        kb.append([InlineKeyboardButton('🔙', callback_data='m_settings')])
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Выберите {arg}:", reply_markup=InlineKeyboardMarkup(kb))
+        
+    elif cmd == 'do_restart': await do_restart(update, context)
+    elif cmd == 'do_backup': await do_backup(update, context)
+
+# --- Messages ---
+@restricted
+async def msg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    state = context.user_data.pop('state', None)
+    text = update.message.text.strip()
+    chat_id = update.effective_chat.id
+    
+    if state == 'add_user':
         if not username_regex.match(text):
-            await context.bot.send_message(chat_id=chat_id, text="❌ Некорректное имя.")
+            await context.bot.send_message(chat_id, "Некорректное имя.")
             return
-        msg = await context.bot.send_message(chat_id=chat_id, text="Создание...")
-        out = run_command_sync(f'--add-user {text}') # Sync, т.к. не убивает контейнер
-        if "Error" in out or not out:
-             # На случай, если скрипт ничего не вернул или ошибку
-             pass
-        await context.bot.delete_message(chat_id=chat_id, message_id=msg.message_id)
-        await context.bot.send_message(chat_id=chat_id, text=f"✅ Создан {text}")
-        await show_user(update, context, text)
+        await context.bot.send_message(chat_id, "Создаю...")
+        run_sync(f'--add-user {text}')
+        await context.bot.send_message(chat_id, f"✅ Создан: {text}")
+        # Показать конфиг
+        confs = get_user_conf(text)
+        for c in confs:
+            if not c: continue
+            qr = qrcode.make(c)
+            bio = io.BytesIO(); qr.save(bio, 'PNG'); bio.seek(0)
+            await context.bot.send_photo(chat_id, photo=bio, caption=f"<code>{c}</code>", parse_mode='HTML')
 
-    elif action == 'setting':
-        param = context.user_data.pop('setting_param', None)
+    elif state == 'setting':
+        param = context.user_data.pop('param', None)
+        # Валидация
         if param == 'port' and not text.isdigit():
-             await context.bot.send_message(chat_id=chat_id, text="❌ Порт должен быть числом.")
-             return
-        await execute_setting(update, context, param, text)
+            await context.bot.send_message(chat_id, "Порт должен быть числом.")
+            return
+        
+        # Маппинг параметра для функции apply
+        key = param
+        if param == 'path': key = 'service_path'
+        if param == 'domain': key = 'domain' # и так совпадает
+        if param == 'host_header': key = 'host_header'
+        
+        await apply_setting(update, context, key, text)
 
-# Main
+# --- Main ---
 def main():
-    app = ApplicationBuilder().token(TOKEN).post_init(check_and_send_menu_on_startup).build()
+    app = ApplicationBuilder().token(TOKEN).post_init(check_startup_message).build()
     app.add_handler(CommandHandler('start', start))
-    app.add_handler(CallbackQueryHandler(callback_handler))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
+    app.add_handler(CallbackQueryHandler(cb_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, msg_handler))
     logger.info("Bot started.")
     app.run_polling()
 
