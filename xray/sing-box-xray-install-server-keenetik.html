@@ -295,7 +295,21 @@
 <div class="command-group">
         <div class="command-title">Установка mihomo на keenetic</div>
         <div class="command-container">
-          <textarea class="command" readonly onclick="showCopyButton(this)">opkg update && opkg install curl && A=$(opkg print-architecture | awk '/^arch/ && $2 ~ /^(mips|mipsel|aarch64)/ {sub(/[-_].*/, "", $2); print $2; exit}') && curl -Lso /tmp/m.ipk https://github.com/qp-io/qp-io.github.io/raw/refs/heads/main/mihomo/mihomo_${A}.ipk && opkg install /tmp/m.ipk && ndmc -c interface Proxy0 && ndmc -c interface Proxy0 proxy protocol socks5 && ndmc -c interface Proxy0 proxy socks5-udp && ndmc -c interface Proxy0 proxy upstream 127.0.0.1 7890  && ndmc -c interface Proxy0 description mihomo && ndmc -c interface Proxy0 ip global auto && ndmc -c interface Proxy0 up && ndmc -c system configuration save</textarea>
+          <textarea class="command" readonly onclick="showCopyButton(this)">opkg update && opkg install curl && \
+A=$(opkg print-architecture | awk '/^arch/ && $2 ~ /^(mips|mipsel|aarch64)/ {sub(/[-_].*/, "", $2); print $2; exit}') && \
+curl -fsSL -o /tmp/m.ipk https://github.com/qp-io/qp-io.github.io/raw/refs/heads/main/mihomo/mihomo_${A}.ipk && \
+opkg install /tmp/m.ipk && \
+for cmd in \
+  "proxy protocol socks5" \
+  "proxy socks5-udp" \
+  "proxy upstream 127.0.0.1 7890" \
+  "description mihomo" \
+  "ip global auto" \
+  "up"
+do
+  ndmc -c "interface Proxy0 $cmd"
+done && \
+ndmc -c "system configuration save"</textarea>
           <button class="copy-btn" onclick="copyCommand(this)" title="Копировать">
             <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
               <path d="M8 4v12a2 2 0 002 2h8a2 2 0 002-2V7.242a2 2 0 00-.602-1.43L16.083 2.57A2 2 0 0014.685 2H10a2 2 0 00-2 2z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
