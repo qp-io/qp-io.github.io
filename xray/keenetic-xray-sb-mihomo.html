@@ -277,15 +277,7 @@ U=https://sw.ext.io/ent/$A && \
 curl -fsSL "$U/$(curl -fsSL $U/ | grep -o "mihomo_.*_${A}.*\.ipk" | sort -V | tail -1)" \
   -o /tmp/m.ipk && \
 opkg install /tmp/m.ipk && \
-for c in \
- "proxy protocol socks5" \
- "proxy socks5-udp" \
- "proxy upstream 127.0.0.1 7890" \
- "description mihomo" \
- "ip global auto" \
- "up" \
-do ndmc -c "interface Proxy0 $c"; done && \
-ndmc -c "system configuration save"</textarea>  
+i="interface Proxy0";for x in "" "proxy protocol socks5" "proxy socks5-udp" "proxy upstream 127.0.0.1 7890" "description mihomo" "ip global auto" "up";do ndmc -c "$i $x";done;ndmc -c "system configuration save"</textarea>  
           <button class="copy-btn" onclick="copyCommand(this)" title="Копировать">  
             <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">  
               <path d="M8 4v12a2 2 0 002 2h8a2 2 0 002-2V7.242a2 2 0 00-.602-1.43L16.083 2.57A2 2 0 0014.685 2H10a2 2 0 00-2 2z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>  
