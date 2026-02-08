@@ -26,7 +26,7 @@ image[sing-box]="gzxhwq/sing-box:latest"
 image[nginx]="nginx:latest"
 image[certbot]="certbot/certbot:latest"
 image[haproxy]="haproxy:latest"
-image[python]="python:3.14-alpine"
+image[python]="python:3.12-alpine"
 image[wgcf]="virb3/wgcf:latest"
 
 defaults[transport]=tcp
