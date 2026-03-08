@@ -715,6 +715,14 @@ function install_packages {
 }
 
 function install_docker {
+  if [[ -n $BOT_TOKEN ]]; then
+    if docker compose >/dev/null 2>&1; then
+      docker_cmd="docker compose"
+    else
+      docker_cmd="docker-compose"
+    fi
+    return 0
+  fi
   if ! which docker >/dev/null 2>&1; then
     curl -fsSL -m 5 https://get.docker.com | bash
     systemctl enable --now docker
@@ -982,7 +990,7 @@ EOF
 }
 
 function download_tgbot_script {
-  curl -fsSL -m 3 https://raw.githubusercontent.com/qp-io/qp-io.github.io/refs/heads/main/xray/tgbot.py -o "${path[tgbot_script]}"
+  curl -fsSL -m 15 --retry 2 https://raw.githubusercontent.com/qp-io/qp-io.github.io/refs/heads/main/xray/tgbot.py -o "${path[tgbot_script]}"
 }
 
 function generate_selfsigned_certificate {
@@ -1517,9 +1525,19 @@ function print_client_configuration {
 }
 
 function upgrade {
+  if [[ -n $BOT_TOKEN ]]; then return 0; fi
   local uuid
   local warp_token
   local warp_id
+  # Пропускаем если нет признаков старой версии
+  if [[ ! -e "${HOME}/reality/config" && ! -f "${config_path}/xray.conf" && ! -f "${config_path}/singbox.conf" && ! -d "${config_path}/warp" ]]; then
+    # Только миграция значений конфига если нужно
+    if [[ -r ${path[config]} ]]; then
+      grep -q "transport=h2\|core=singbox\|security=tls-invalid\|security=tls-valid" "${path[config]}" 2>/dev/null && \
+        sed -i 's|transport=h2|transport=http|g; s|core=singbox|core=sing-box|g; s|security=tls-invalid|security=selfsigned|g; s|security=tls-valid|security=letsencrypt|g' "${path[config]}" || true
+    fi
+    return 0
+  fi
   if [[ -e "${HOME}/reality/config" ]]; then
     ${docker_cmd} --project-directory "${HOME}/reality" down --remove-orphans --timeout 2
     mv -f "${HOME}/reality" ${config_path}
@@ -2384,7 +2402,7 @@ function restore_backup_menu {
 
 function restart_docker_compose {
   ${docker_cmd} --project-directory ${config_path} -p ${compose_project} down --remove-orphans --timeout 2 || true
-  ${docker_cmd} --project-directory ${config_path} -p ${compose_project} up --build -d --remove-orphans --build
+  ${docker_cmd} --project-directory ${config_path} -p ${compose_project} up --build -d --remove-orphans
 }
 
 function restart_tgbot_compose {
@@ -2424,7 +2442,7 @@ function warp_api {
   if [[ -n ${team_token} ]]; then
     headers+=("Cf-Access-Jwt-Assertion: ${team_token}")
   fi
-  command="curl -sLX ${verb} -m 3 -w '%{http_code}' -o ${temp_file} ${endpoint}${resource}"
+  command="curl -sLX ${verb} -m 10 --retry 2 -w '%{http_code}' -o ${temp_file} ${endpoint}${resource}"
   for header in "${headers[@]}"; do
     command+=" -H '${header}'"
   done
@@ -2449,7 +2467,7 @@ function warp_api {
 
 function warp_create_account {
   local response
-  docker run --rm -it -v "${config_path}":/data "${image[wgcf]}" register --config /data/wgcf-account.toml --accept-tos
+  docker run --rm -v "${config_path}":/data "${image[wgcf]}" register --config /data/wgcf-account.toml --accept-tos
   if [[ $? -ne 0 || ! -r ${config_path}/wgcf-account.toml ]]; then
     echo "Ошибка создания аккаунта WARP!"
     return 1
@@ -2589,7 +2607,10 @@ function generate_file_list {
 }
 
 function tune_kernel {
-  cat >/etc/sysctl.d/99-reality-ezpz.conf <<EOF
+  if [[ -n $BOT_TOKEN ]]; then return 0; fi
+  local sysctl_file="/etc/sysctl.d/99-reality-ezpz.conf"
+  local sysctl_content
+  sysctl_content=$(cat <<EOF
 fs.file-max = 200000
 net.core.rmem_max = 67108864
 net.core.wmem_max = 67108864
@@ -2611,10 +2632,15 @@ net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
 net.netfilter.nf_conntrack_max=1000000
 EOF
-  sysctl -qp /etc/sysctl.d/99-reality-ezpz.conf >/dev/null 2>&1 || true
+)
+  if [[ ! -f "$sysctl_file" ]] || [[ "$(cat "$sysctl_file" 2>/dev/null)" != "$sysctl_content" ]]; then
+    echo "$sysctl_content" > "$sysctl_file"
+    sysctl -qp "$sysctl_file" >/dev/null 2>&1 || true
+  fi
 }
 
 function configure_docker {
+  if [[ -n $BOT_TOKEN ]]; then return 0; fi
   local docker_config="/etc/docker/daemon.json"
   local config_modified=false
   local temp_file
