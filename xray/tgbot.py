@@ -65,6 +65,9 @@ def run_sync(args: str) -> str:
 
 
 def apply_reconfigure() -> str:
+    return run_sync("")
+
+def do_restart_sync() -> str:
     return run_sync("--restart")
 
 
@@ -286,7 +289,7 @@ async def apply_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, para
 async def do_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     await context.bot.send_message(chat_id, "⏳ Перезапуск служб...")
-    out = apply_reconfigure()
+    out = do_restart_sync()
     snippet = out if len(out) < 3900 else out[:3900] + "\n...(truncated)"
     await context.bot.send_message(
         chat_id,
