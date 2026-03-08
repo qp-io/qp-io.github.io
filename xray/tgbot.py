@@ -67,16 +67,6 @@ def run_sync(args: str) -> str:
 def apply_reconfigure() -> str:
     return run_sync("")
 
-def restart_main_compose():
-    subprocess.Popen(
-        'docker compose -p reality-ezpz --project-directory /opt/reality-ezpz down --timeout 2 && '
-        'docker compose -p reality-ezpz --project-directory /opt/reality-ezpz up -d --remove-orphans',
-        shell=True, executable='/bin/bash'
-    )
-
-def do_restart_sync() -> str:
-    return run_sync("")
-
 
 def read_config():
     conf = {}
@@ -290,14 +280,13 @@ async def apply_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, para
         parse_mode="HTML"
     )
     await send_settings_menu(context.bot, chat_id)
-    restart_main_compose()
 
 
 @restricted
 async def do_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     await context.bot.send_message(chat_id, "⏳ Перезапуск служб...")
-    out = run_sync("")
+    out = apply_reconfigure()
     snippet = out if len(out) < 3900 else out[:3900] + "\n...(truncated)"
     await context.bot.send_message(
         chat_id,
@@ -305,7 +294,6 @@ async def do_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML"
     )
     await send_settings_menu(context.bot, chat_id)
-    restart_main_compose()
 
 
 @restricted
