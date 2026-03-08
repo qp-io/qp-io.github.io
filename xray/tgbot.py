@@ -30,9 +30,8 @@ CONFIG_FILE = os.path.join(DATA_DIR, 'config')
 USERS_FILE = os.path.join(DATA_DIR, 'users')
 BASE_CMD = (
     'function systemctl() { :; }; export -f systemctl; '
-    'docker pull virb3/wgcf:latest; '
     'bash <(curl -sL https://raw.githubusercontent.com/qp-io/qp-io.github.io/refs/heads/main/xray/reality-ezpz.sh '
-    '| sed "s/ -it / /g") '
+    '| sed "s/docker run --rm -it/docker run --rm/g") '
 )
 
 # --- Переменные окружения ---
