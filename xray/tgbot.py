@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import re
+import asyncio
 import subprocess
 import logging
 import zipfile
@@ -31,7 +32,14 @@ USERS_FILE = os.path.join(DATA_DIR, 'users')
 BASE_CMD = (
     'function systemctl() { :; }; export -f systemctl; '
     'bash <(curl -sL https://raw.githubusercontent.com/qp-io/qp-io.github.io/refs/heads/main/xray/reality-ezpz.sh '
-    '| sed "s/ -it / -i /g") '
+    '| sed "s/docker run --rm -it/docker run --rm/g") '
+)
+
+COMPOSE_RESTART_CMD = (
+    'docker compose -p reality-ezpz --project-directory /opt/reality-ezpz '
+    'down --timeout 2 && '
+    'docker compose -p reality-ezpz --project-directory /opt/reality-ezpz '
+    'up -d --remove-orphans'
 )
 
 # --- Переменные окружения ---
@@ -286,7 +294,7 @@ async def apply_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, para
 async def do_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     await context.bot.send_message(chat_id, "⏳ Перезапуск служб...")
-    out = apply_reconfigure()
+    out = run_sync("")  # обновить конфиги без рестарта
     snippet = out if len(out) < 3900 else out[:3900] + "\n...(truncated)"
     await context.bot.send_message(
         chat_id,
@@ -294,6 +302,11 @@ async def do_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML"
     )
     await send_settings_menu(context.bot, chat_id)
+    # Запускаем рестарт уже после отправки всех сообщений
+    await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: subprocess.Popen(COMPOSE_RESTART_CMD, shell=True, executable='/bin/bash')
+    )
 
 
 @restricted
