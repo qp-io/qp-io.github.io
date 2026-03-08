@@ -31,7 +31,7 @@ USERS_FILE = os.path.join(DATA_DIR, 'users')
 BASE_CMD = (
     'function systemctl() { :; }; export -f systemctl; '
     'bash <(curl -sL https://raw.githubusercontent.com/qp-io/qp-io.github.io/refs/heads/main/xray/reality-ezpz.sh '
-    '| sed "s/docker run --rm -it/docker run --rm/g") '
+    '| sed "s/ -it / -i /g") '
 )
 
 # --- Переменные окружения ---
@@ -65,7 +65,7 @@ def run_sync(args: str) -> str:
 
 
 def apply_reconfigure() -> str:
-    return run_sync("")
+    return run_sync("--restart")
 
 
 def read_config():
