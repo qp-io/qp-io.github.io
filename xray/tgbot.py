@@ -31,7 +31,7 @@ USERS_FILE = os.path.join(DATA_DIR, 'users')
 BASE_CMD = (
     'function systemctl() { :; }; export -f systemctl; '
     'bash <(curl -sL https://raw.githubusercontent.com/qp-io/qp-io.github.io/refs/heads/main/xray/reality-ezpz.sh '
-    '| sed "s/ -it / -i /g") '
+    '| sed "s/docker run --rm -it/docker run --rm/g") '
 )
 
 # --- Переменные окружения ---
@@ -64,8 +64,8 @@ def run_sync(args: str) -> str:
         return str(e)
 
 
-def apply_reconfigure() -> str:
-    return run_sync("")
+def apply_reconfigure(extra_args=""):
+    return run_sync(extra_args)
 
 
 def read_config():
@@ -107,20 +107,8 @@ def get_users():
 
 
 def get_user_conf(name):
-    # Запускаем скрипт напрямую — пайп внутри аргумента BASE_CMD не работает
-    full = BASE_CMD + f"--show-user {name}"
-    try:
-        proc = subprocess.Popen(
-            full, shell=True, executable='/bin/bash',
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT
-        )
-        out, _ = proc.communicate(timeout=120)
-        lines = out.decode(errors='ignore').splitlines()
-        # Берём строки с ссылкой (содержат "://") или JSON конфиг (shadowtls)
-        return [l.strip() for l in lines
-                if l.strip() and ('://' in l or l.strip().startswith('{"dns"'))]
-    except Exception:
-        return []
+    out = run_sync(f"--show-user {name} | grep -E '://|^\\{{\"dns\"'")
+    return [l.strip() for l in out.splitlines() if l.strip()]
 
 
 def make_backup():
@@ -274,21 +262,27 @@ async def ask_input(update: Update, context: ContextTypes.DEFAULT_TYPE, param: s
 @restricted
 async def apply_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, param: str, val: str):
     chat_id = update.effective_chat.id
+    extra_args = ""
+
     if param == "warp_license":
-        write_config("warp", "ON")
+        # Передаём --warp=ON --warp-license=... как аргументы скрипту
+        # чтобы args[warp]="ON" — иначе warp_create_account не вызывается
+        extra_args = f"--warp=ON --warp-license={val}"
         write_config("warp_license", val)
     elif param == "warp" and val == "OFF":
-        write_config("warp", "OFF")
+        extra_args = "--warp=OFF"
     elif param == "service_path" and (val == "/" or val == ""):
         write_config("service_path", "")
     else:
         write_config(param, val)
+
     await context.bot.send_message(chat_id, "⏳ Применяю настройки...")
-    out = apply_reconfigure()
+    out = apply_reconfigure(extra_args)
     snippet = out if len(out) < 3900 else out[:3900] + "\n...(truncated)"
+    icon = "✅" if out and "ошибка" not in out.lower() and "error" not in out.lower() else "⚠️"
     await context.bot.send_message(
         chat_id,
-        f"✅ Настройки применены.\n<blockquote>{snippet}</blockquote>",
+        f"{icon} Настройки применены.\n<blockquote>{snippet}</blockquote>",
         parse_mode="HTML"
     )
     await send_settings_menu(context.bot, chat_id)
@@ -356,8 +350,6 @@ async def cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     elif cmd == "u_show":
         confs = get_user_conf(arg)
-        if not confs:
-            await context.bot.send_message(chat_id, f"⚠️ Не удалось получить конфиг для <b>{arg}</b>", parse_mode="HTML")
         for c in confs:
             if not c:
                 continue
