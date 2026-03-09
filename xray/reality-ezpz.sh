@@ -138,7 +138,7 @@ function parse_args {
       -t|--transport)
         args[transport]="$2"
         case ${args[transport]} in
-          tcp|http|xhttp|xicmp|xdns|grpc|ws|tuic|hysteria2|shadowtls)
+          tcp|http|xhttp|grpc|ws|tuic|hysteria2|shadowtls)
             shift 2
             ;;
           *)
@@ -577,14 +577,6 @@ function build_config {
     echo 'Вы можете использовать транспорт "xhttp" только с ядром "xray". Смените ядро на xray.'
     exit 1
   fi
-  if [[ ${config[transport]} == 'xicmp' && ${config[core]} != 'xray' ]]; then
-    echo 'Вы можете использовать транспорт "xicmp" только с ядром "xray". Смените ядро на xray.'
-    exit 1
-  fi
-  if [[ ${config[transport]} == 'xdns' && ${config[core]} != 'xray' ]]; then
-    echo 'Вы можете использовать транспорт "xdns" только с ядром "xray". Смените ядро на xray.'
-    exit 1
-  fi
   if [[ ${config[transport]} == 'tuic' && ${config[security]} == 'reality' ]]; then
     echo 'Вы не можете использовать транспорт "tuic" с "reality". Используйте другой транспорт или измените безопасность на letsencrypt или selfsigned'
     exit 1
@@ -760,9 +752,6 @@ services:
     $([[ ${config[security]} == 'reality' || ${config[transport]} == 'shadowtls' || ${config[security]} == 'notls' ]] && echo "- ${config[port]}:8443" || true)
     $([[ ${config[transport]} == 'tuic' || ${config[transport]} == 'hysteria2' ]] && echo "ports:" || true)
     $([[ ${config[transport]} == 'tuic' || ${config[transport]} == 'hysteria2' ]] && echo "- ${config[port]}:8443/udp" || true)
-    $([[ ${config[transport]} == 'xicmp' || ${config[transport]} == 'xdns' ]] && echo "ports:" || true)
-    $([[ ${config[transport]} == 'xicmp' ]] && echo "- ${config[port]}:8443/udp" || true)
-    $([[ ${config[transport]} == 'xdns' ]] && echo "- 53:8053/udp" || true)
     $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[transport]} != 'shadowtls' ]] && echo "expose:" || true)
     $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[transport]} != 'shadowtls' ]] && echo "- 8443" || true)
     restart: always
@@ -1315,16 +1304,7 @@ EOF
            echo '"path": "/'"${config[service_path]}"'"'
            echo '},'
         fi)
-        $(if [[ ${config[transport]} == 'xicmp' || ${config[transport]} == 'xdns' ]]; then
-           echo '"kcpSettings": {"mtu": 1350, "tti": 50, "uplinkCapacity": 5, "downlinkCapacity": 20, "congestion": false, "readBufferSize": 2, "writeBufferSize": 2},'
-         fi)
-        $(if [[ ${config[transport]} == 'xicmp' ]]; then
-           echo '"finalmask": {"udp": [{"type": "xicmp", "settings": {"id": 1234}}]},'
-         fi)
-        $(if [[ ${config[transport]} == 'xdns' ]]; then
-           echo '"finalmask": {"udp": [{"type": "xdns", "settings": {"domain": "'"${config[server]}"'"}}]},'
-         fi)
-        "network": "$([[ ${config[transport]} == 'xicmp' || ${config[transport]} == 'xdns' ]] && echo 'kcp' || echo "${config[transport]}")",
+        "network": "${config[transport]}",
         $(if [[ ${config[security]} == 'reality' ]]; then
           echo "${reality_object}"
         elif [[ ${config[security]} == 'notls' ]]; then
@@ -1494,9 +1474,7 @@ function print_client_configuration {
     client_config="${client_config}&alpn=$([[ ${config[transport]} == 'ws' ]] && echo 'http/1.1' || echo 'h2,http/1.1')"
     client_config="${client_config}&headerType=none"
     client_config="${client_config}&fp=chrome"
-    client_config="${client_config}&type=$([[ ${config[transport]} == 'xicmp' || ${config[transport]} == 'xdns' ]] && echo 'kcp' || echo "${config[transport]}")"
-    client_config="${client_config}$([[ ${config[transport]} == 'xicmp' ]] && echo '&fm=xicmp%2Cid%3D1234' || true)"
-    client_config="${client_config}$([[ ${config[transport]} == 'xdns' ]] && echo "&fm=xdns%2Cdomain%3D${config[server]}" || true)"
+    client_config="${client_config}&type=${config[transport]}"
     client_config="${client_config}&flow=$([[ ${config[transport]} == 'tcp' ]] && echo 'xtls-rprx-vision' || true)"
     client_config="${client_config}&sni=${config[domain]%%:*}"
     client_config="${client_config}$([[ ${config[transport]} == 'ws' || ${config[transport]} == 'http' ]] && echo "&host=${config[server]}" || true)"
@@ -2014,8 +1992,6 @@ function config_transport_menu {
       "tcp" "$([[ "${config[transport]}" == 'tcp' ]] && echo 'on' || echo 'off')" \
       "http" "$([[ "${config[transport]}" == 'http' ]] && echo 'on' || echo 'off')" \
       "xhttp" "$([[ "${config[transport]}" == 'xhttp' ]] && echo 'on' || echo 'off')" \
-      "xicmp" "$([[ "${config[transport]}" == 'xicmp' ]] && echo 'on' || echo 'off')" \
-      "xdns" "$([[ "${config[transport]}" == 'xdns' ]] && echo 'on' || echo 'off')" \
       "grpc" "$([[ "${config[transport]}" == 'grpc' ]] && echo 'on' || echo 'off')" \
       "ws" "$([[ "${config[transport]}" == 'ws' ]] && echo 'on' || echo 'off')" \
       "tuic" "$([[ "${config[transport]}" == 'tuic' ]] && echo 'on' || echo 'off')" \
@@ -2031,14 +2007,6 @@ function config_transport_menu {
     fi
     if [[ ${transport} == 'xhttp' && ${config[core]} != 'xray' ]]; then
       message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "xhttp" с ядром "sing-box". Используйте ядро "xray".'
-      continue
-    fi
-    if [[ ${transport} == 'xicmp' && ${config[core]} != 'xray' ]]; then
-      message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "xicmp" с ядром "sing-box". Используйте ядро "xray".'
-      continue
-    fi
-    if [[ ${transport} == 'xdns' && ${config[core]} != 'xray' ]]; then
-      message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "xdns" с ядром "sing-box". Используйте ядро "xray".'
       continue
     fi
     if [[ ${transport} == 'tuic' && ${config[security]} == 'reality' ]]; then
@@ -2481,7 +2449,7 @@ function warp_api {
 
 function warp_create_account {
   local response
-  docker run --rm -it -v "${config_path}":/data "${image[wgcf]}" register --config /data/wgcf-account.toml --accept-tos
+  docker run --rm -v "${config_path}":/data "${image[wgcf]}" register --config /data/wgcf-account.toml --accept-tos
   if [[ $? -ne 0 || ! -r ${config_path}/wgcf-account.toml ]]; then
     echo "Ошибка создания аккаунта WARP!"
     return 1

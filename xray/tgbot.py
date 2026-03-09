@@ -401,7 +401,7 @@ async def cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ]
             ]
         elif arg == "transport":
-            opts = ['tcp','http','grpc','ws','xhttp','xicmp','xdns','tuic','hysteria2','shadowtls']
+            opts = ['tcp','http','grpc','ws','xhttp','tuic','hysteria2','shadowtls']
             kb = [
                 [
                     InlineKeyboardButton(o, callback_data=f"set!transport!{o}")
