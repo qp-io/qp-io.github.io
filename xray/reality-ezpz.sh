@@ -2384,12 +2384,12 @@ function restore_backup_menu {
 
 function restart_docker_compose {
   ${docker_cmd} --project-directory ${config_path} -p ${compose_project} down --remove-orphans --timeout 2 || true
-  ${docker_cmd} --project-directory ${config_path} -p ${compose_project} up --build -d --remove-orphans
+  ${docker_cmd} --project-directory ${config_path} -p ${compose_project} up --build -d --remove-orphans --build
 }
 
 function restart_tgbot_compose {
   ${docker_cmd} --project-directory ${config_path}/tgbot -p ${tgbot_project} down --remove-orphans --timeout 2 || true
-  ${docker_cmd} --project-directory ${config_path}/tgbot -p ${tgbot_project} up --build -d --remove-orphans
+  ${docker_cmd} --project-directory ${config_path}/tgbot -p ${tgbot_project} up --build -d --remove-orphans --build
 }
 
 function restart_container {
@@ -2424,7 +2424,7 @@ function warp_api {
   if [[ -n ${team_token} ]]; then
     headers+=("Cf-Access-Jwt-Assertion: ${team_token}")
   fi
-  command="curl -sLX ${verb} -m 15 --retry 2 -w '%{http_code}' -o ${temp_file} ${endpoint}${resource}"
+  command="curl -sLX ${verb} -m 3 -w '%{http_code}' -o ${temp_file} ${endpoint}${resource}"
   for header in "${headers[@]}"; do
     command+=" -H '${header}'"
   done
@@ -2449,7 +2449,7 @@ function warp_api {
 
 function warp_create_account {
   local response
-  docker run --rm -v "${config_path}":/data "${image[wgcf]}" register --config /data/wgcf-account.toml --accept-tos
+  docker run --rm -it -v "${config_path}":/data "${image[wgcf]}" register --config /data/wgcf-account.toml --accept-tos
   if [[ $? -ne 0 || ! -r ${config_path}/wgcf-account.toml ]]; then
     echo "Ошибка создания аккаунта WARP!"
     return 1

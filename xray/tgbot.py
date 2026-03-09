@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import re
+import asyncio
 import subprocess
 import logging
 import zipfile
@@ -34,6 +35,13 @@ BASE_CMD = (
     '| sed "s/docker run --rm -it/docker run --rm/g") '
 )
 
+COMPOSE_RESTART_CMD = (
+    'docker compose -p reality-ezpz --project-directory /opt/reality-ezpz '
+    'down --timeout 2 && '
+    'docker compose -p reality-ezpz --project-directory /opt/reality-ezpz '
+    'up -d --remove-orphans'
+)
+
 # --- Переменные окружения ---
 TOKEN = os.environ.get('BOT_TOKEN')
 if not TOKEN:
@@ -64,8 +72,8 @@ def run_sync(args: str) -> str:
         return str(e)
 
 
-def apply_reconfigure(extra_args=""):
-    return run_sync(extra_args)
+def apply_reconfigure() -> str:
+    return run_sync("")
 
 
 def read_config():
@@ -262,27 +270,21 @@ async def ask_input(update: Update, context: ContextTypes.DEFAULT_TYPE, param: s
 @restricted
 async def apply_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, param: str, val: str):
     chat_id = update.effective_chat.id
-    extra_args = ""
-
     if param == "warp_license":
-        # Передаём --warp=ON --warp-license=... как аргументы скрипту
-        # чтобы args[warp]="ON" — иначе warp_create_account не вызывается
-        extra_args = f"--warp=ON --warp-license={val}"
+        write_config("warp", "ON")
         write_config("warp_license", val)
     elif param == "warp" and val == "OFF":
-        extra_args = "--warp=OFF"
+        write_config("warp", "OFF")
     elif param == "service_path" and (val == "/" or val == ""):
         write_config("service_path", "")
     else:
         write_config(param, val)
-
     await context.bot.send_message(chat_id, "⏳ Применяю настройки...")
-    out = apply_reconfigure(extra_args)
+    out = apply_reconfigure()
     snippet = out if len(out) < 3900 else out[:3900] + "\n...(truncated)"
-    icon = "✅" if out and "ошибка" not in out.lower() and "error" not in out.lower() else "⚠️"
     await context.bot.send_message(
         chat_id,
-        f"{icon} Настройки применены.\n<blockquote>{snippet}</blockquote>",
+        f"✅ Настройки применены.\n<blockquote>{snippet}</blockquote>",
         parse_mode="HTML"
     )
     await send_settings_menu(context.bot, chat_id)
@@ -292,7 +294,7 @@ async def apply_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, para
 async def do_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     await context.bot.send_message(chat_id, "⏳ Перезапуск служб...")
-    out = apply_reconfigure()
+    out = run_sync("")  # обновить конфиги без рестарта
     snippet = out if len(out) < 3900 else out[:3900] + "\n...(truncated)"
     await context.bot.send_message(
         chat_id,
@@ -300,6 +302,11 @@ async def do_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML"
     )
     await send_settings_menu(context.bot, chat_id)
+    # Запускаем рестарт уже после отправки всех сообщений
+    await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: subprocess.Popen(COMPOSE_RESTART_CMD, shell=True, executable='/bin/bash')
+    )
 
 
 @restricted
