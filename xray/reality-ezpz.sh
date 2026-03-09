@@ -12,21 +12,10 @@ declare -A md5
 declare -A regex
 declare -A image
 
-# Путь к данным инстанса — переопределяется через REALITY_CONFIG_PATH для мульти-инстанс
-config_path="${REALITY_CONFIG_PATH:-/opt/reality-ezpz}"
-# Имя инстанса = последний компонент пути (напр. "main", "backup", "reality-ezpz")
-instance_name="$(basename "${config_path}")"
-# Имена Docker-проектов уникальны для каждого инстанса
-compose_project="reality-${instance_name}"
-tgbot_project="tgbot-${instance_name}"
-# Уникальные IPv6 подсети — детерминированно из instance_name (избегаем конфликтов)
-# cksum даёт число 0..2^32-1, берём остаток от 3800 + offset 100 → диапазон 100..3899
-_sn_idx=$(printf '%s' "${instance_name}" | cksum | awk '{print ($1 % 3800) + 100}')
-_sn_main=$(( _sn_idx * 2 ))
-_sn_tgbot=$(( _sn_idx * 2 + 1 ))
-subnet_main="fc12::${_sn_main}:0/112"
-subnet_tgbot="fc12::${_sn_tgbot}:0/112"
-BACKTITLE="Панель управления RealityEZPZ [${instance_name}]"
+config_path="/opt/reality-ezpz"
+compose_project='reality-ezpz'
+tgbot_project='tgbot'
+BACKTITLE="Панель управления RealityEZPZ"
 MENU="Выберите действие:"
 HEIGHT=30
 WIDTH=65
@@ -767,7 +756,7 @@ networks:
     enable_ipv6: true
     ipam:
       config:
-      - subnet: ${subnet_main}
+      - subnet: fc11::1:0/112
 services:
   engine:
     image: ${image[${config[core]}]}
@@ -841,7 +830,7 @@ networks:
     enable_ipv6: true
     ipam:
       config:
-      - subnet: ${subnet_tgbot}
+      - subnet: fc11::2:0/112
 services:
   tgbot:
     build: ./
@@ -851,7 +840,7 @@ services:
       BOT_ADMIN: ${config[tgbot_admins]}
     volumes:
     - /var/run/docker.sock:/var/run/docker.sock
-    - ..:/opt/reality-ezpz
+    - ../:${config_path}
     - /etc/docker/:/etc/docker/
     networks:
     - tgbot
@@ -998,7 +987,7 @@ EOF
 function generate_tgbot_dockerfile {
   cat >"${path[tgbot_dockerfile]}" << EOF
 FROM ${image[python]}
-WORKDIR /opt/reality-ezpz/tgbot
+WORKDIR ${config_path}/tgbot
 RUN apk add --no-cache docker-cli-compose curl bash newt libqrencode-tools sudo openssl jq zip unzip
 RUN pip install --no-cache-dir python-telegram-bot==22.3 qrcode[pil]==8.2
 CMD [ "python", "./tgbot.py" ]
