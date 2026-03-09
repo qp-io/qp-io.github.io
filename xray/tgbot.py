@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import os
 import re
-import asyncio
 import subprocess
 import logging
 import zipfile
@@ -35,13 +34,6 @@ BASE_CMD = (
     '| sed "s/docker run --rm -it/docker run --rm/g") '
 )
 
-COMPOSE_RESTART_CMD = (
-    'docker compose -p reality-ezpz --project-directory /opt/reality-ezpz '
-    'down --timeout 2 && '
-    'docker compose -p reality-ezpz --project-directory /opt/reality-ezpz '
-    'up -d --remove-orphans'
-)
-
 # --- Переменные окружения ---
 TOKEN = os.environ.get('BOT_TOKEN')
 if not TOKEN:
@@ -59,20 +51,19 @@ def run_sync(args: str) -> str:
             full, shell=True, executable='/bin/bash',
             stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
-        out, err = proc.communicate(timeout=120)
-        out_s = out.decode(errors='ignore')
-        err_s = err.decode(errors='ignore')
-        if err_s:
-            return (out_s + "\n" + err_s).strip()
-        return out_s.strip()
+        out, err = proc.communicate(timeout=300)
+        out_s = out.decode(errors='ignore').strip()
+        err_s = err.decode(errors='ignore').strip()
+        combined = (out_s + "\n" + err_s).strip() if err_s else out_s
+        return combined
     except subprocess.TimeoutExpired:
         proc.kill()
-        return "Команда заняла слишком много времени."
+        return "Команда заняла слишком много времени (>300 сек)."
     except Exception as e:
         return str(e)
 
 
-def apply_reconfigure() -> str:
+def apply_reconfigure():
     return run_sync("")
 
 
@@ -270,7 +261,12 @@ async def ask_input(update: Update, context: ContextTypes.DEFAULT_TYPE, param: s
 @restricted
 async def apply_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, param: str, val: str):
     chat_id = update.effective_chat.id
+    extra_args = ""
+
     if param == "warp_license":
+        # Записываем оба значения в конфиг, скрипт запускается без аргументов.
+        # Логика скрипта (строка 630): config[warp]==ON и ключи пустые ->
+        # вызывает warp_create_account + warp_add_license автоматически.
         write_config("warp", "ON")
         write_config("warp_license", val)
     elif param == "warp" and val == "OFF":
@@ -279,12 +275,16 @@ async def apply_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, para
         write_config("service_path", "")
     else:
         write_config(param, val)
-    await context.bot.send_message(chat_id, "⏳ Применяю настройки...")
+
+    warp_msg = "⏳ Включаю WARP... Это может занять 1-2 минуты" if param == "warp_license" else "⏳ Применяю настройки..."
+    await context.bot.send_message(chat_id, warp_msg)
     out = apply_reconfigure()
     snippet = out if len(out) < 3900 else out[:3900] + "\n...(truncated)"
+    ok = out and "Команда успешно выполнена" in out
+    icon = "✅" if ok else "⚠️"
     await context.bot.send_message(
         chat_id,
-        f"✅ Настройки применены.\n<blockquote>{snippet}</blockquote>",
+        f"{icon} Настройки применены.\n<blockquote>{snippet}</blockquote>",
         parse_mode="HTML"
     )
     await send_settings_menu(context.bot, chat_id)
@@ -294,7 +294,7 @@ async def apply_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, para
 async def do_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     await context.bot.send_message(chat_id, "⏳ Перезапуск служб...")
-    out = run_sync("")  # обновить конфиги без рестарта
+    out = apply_reconfigure()
     snippet = out if len(out) < 3900 else out[:3900] + "\n...(truncated)"
     await context.bot.send_message(
         chat_id,
@@ -302,11 +302,6 @@ async def do_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML"
     )
     await send_settings_menu(context.bot, chat_id)
-    # Запускаем рестарт уже после отправки всех сообщений
-    await asyncio.get_event_loop().run_in_executor(
-        None,
-        lambda: subprocess.Popen(COMPOSE_RESTART_CMD, shell=True, executable='/bin/bash')
-    )
 
 
 @restricted
@@ -406,7 +401,7 @@ async def cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ]
             ]
         elif arg == "transport":
-            opts = ['tcp','http','grpc','ws','xhttp','tuic','hysteria2','shadowtls']
+            opts = ['tcp','http','grpc','ws','xhttp','xicmp','xdns','tuic','hysteria2','shadowtls']
             kb = [
                 [
                     InlineKeyboardButton(o, callback_data=f"set!transport!{o}")
