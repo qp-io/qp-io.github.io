@@ -32,10 +32,7 @@ print_header() {
 
 # Проверка — установлен ли уже Reality-EZPZ
 check_installed() {
-    if [[ -f "/usr/local/bin/reality-ezpz.sh" && -f "/usr/local/bin/vless" ]]; then
-        return 0
-    fi
-    return 1
+    [[ -f "/usr/local/bin/reality-ezpz.sh" && -f "/usr/local/bin/vless" ]]
 }
 
 # Функция обновления скрипта
@@ -49,11 +46,8 @@ update_reality_ezpz() {
         exit 1
     fi
 
-    # Получаем текущую версию (md5)
     local old_md5=""
-    if [[ -f "/usr/local/bin/reality-ezpz.sh" ]]; then
-        old_md5=$(md5sum /usr/local/bin/reality-ezpz.sh | cut -d' ' -f1)
-    fi
+    [[ -f "/usr/local/bin/reality-ezpz.sh" ]] && old_md5=$(md5sum /usr/local/bin/reality-ezpz.sh | cut -d' ' -f1)
 
     print_color $CYAN "⬇️  Загрузка новой версии скрипта..."
     local tmp_file
@@ -74,27 +68,30 @@ update_reality_ezpz() {
         print_color $GREEN "✅ У вас уже актуальная версия скрипта!"
         rm -f "$tmp_file"
         echo ""
-        return 0
+    else
+        # Бэкап старого скрипта
+        cp /usr/local/bin/reality-ezpz.sh /usr/local/bin/reality-ezpz.sh.bak
+        print_color $CYAN "💾 Резервная копия: /usr/local/bin/reality-ezpz.sh.bak"
+
+        mv "$tmp_file" /usr/local/bin/reality-ezpz.sh
+        chmod +x /usr/local/bin/reality-ezpz.sh
+        print_color $GREEN "✅ Скрипт успешно обновлён!"
+        echo ""
+
+        # Обновляем vless wrapper
+        setup_vless_alias
     fi
 
-    # Бэкап старого скрипта
-    cp /usr/local/bin/reality-ezpz.sh /usr/local/bin/reality-ezpz.sh.bak
-    print_color $CYAN "💾 Резервная копия сохранена: /usr/local/bin/reality-ezpz.sh.bak"
-
-    # Устанавливаем новый скрипт
-    mv "$tmp_file" /usr/local/bin/reality-ezpz.sh
-    chmod +x /usr/local/bin/reality-ezpz.sh
-
-    print_color $GREEN "✅ Скрипт успешно обновлён!"
+    # Удаляем старые docker образы
+    print_color $CYAN "🧹 Очистка старых Docker образов..."
+    docker system prune -a -f >/dev/null 2>&1 \
+        && print_color $GREEN "✅ Docker образы очищены!" \
+        || print_color $YELLOW "⚠️  Не удалось очистить образы"
     echo ""
-
-    # Обновляем vless wrapper (на случай если он тоже изменился)
-    setup_vless_alias
 
     print_color $GREEN "🎉 Обновление завершено!"
     echo ""
 
-    # Перезапускаем сервисы после обновления
     print_color $YELLOW "Перезапустить сервисы с новой версией? (y/n)"
     read -p "Ответ: " do_restart
     if [[ "$do_restart" =~ ^[Yy]$ ]]; then
@@ -412,16 +409,7 @@ case "${1:-}" in
         exec "$REALITY_SCRIPT" --show-user "$2"
         ;;
     update|upgrade)
-        print_color() { echo -e "$2"; }
-        if [[ ! -f "/usr/local/bin/install.sh" ]]; then
-            echo "⬇️  Загрузка установщика для обновления..."
-            curl -fsSL --retry 3 -m 30 \
-                "https://raw.githubusercontent.com/qp-io/qp-io.github.io/refs/heads/main/xray/install.sh" \
-                -o /tmp/install_update.sh && bash /tmp/install_update.sh --update || \
-            bash <(curl -fsSL https://raw.githubusercontent.com/qp-io/qp-io.github.io/refs/heads/main/xray/install.sh) --update
-        else
-            bash /usr/local/bin/install.sh --update
-        fi
+        exec bash /usr/local/bin/install.sh --update
         ;;
     backup)
         exec "$REALITY_SCRIPT" --backup
@@ -557,7 +545,7 @@ main() {
         echo ""
         print_color $BLUE "Что вы хотите сделать?"
         echo ""
-        echo "1) Обновить скрипт до последней версии"
+        echo "1) Обновить до последней версии"
         echo "2) Переустановить заново"
         echo "3) Открыть меню управления"
         echo "4) Выйти"
@@ -565,24 +553,11 @@ main() {
         while true; do
             read -p "Введите ваш выбор (1-4): " already_choice
             case $already_choice in
-                1)
-                    update_reality_ezpz
-                    exit 0
-                    ;;
-                2)
-                    print_color $YELLOW "⚠️  Переустановка поверх существующей..."
-                    echo ""
-                    break
-                    ;;
-                3)
-                    exec /usr/local/bin/vless -m
-                    ;;
-                4)
-                    exit 0
-                    ;;
-                *)
-                    print_color $RED "❌ Неверный выбор."
-                    ;;
+                1) update_reality_ezpz; exit 0 ;;
+                2) print_color $YELLOW "⚠️  Переустановка..."; echo ""; break ;;
+                3) exec /usr/local/bin/vless -m ;;
+                4) exit 0 ;;
+                *) print_color $RED "❌ Неверный выбор." ;;
             esac
         done
     fi
@@ -658,21 +633,12 @@ main() {
     echo ""
 }
 
-# Поддержка --update флага для вызова из vless wrapper
+# Поддержка --update флага
 if [[ "${1:-}" == "--update" ]]; then
     if [[ $EUID -ne 0 ]]; then
         echo "❌ Требуются права root!"
         exit 1
     fi
-    # Определяем функции которые нужны для update
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[1;33m'
-    BLUE='\033[0;34m'
-    CYAN='\033[0;36m'
-    NC='\033[0m'
-    print_color() { echo -e "${1}${2}${NC}"; }
-    print_header() { clear; echo "=================================================="; echo "           Reality-EZPZ Updater"; echo "=================================================="; echo ""; }
     update_reality_ezpz
     exit 0
 fi
