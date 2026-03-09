@@ -54,8 +54,10 @@ def run_sync(args: str) -> str:
         out, err = proc.communicate(timeout=300)
         out_s = out.decode(errors='ignore').strip()
         err_s = err.decode(errors='ignore').strip()
-        combined = (out_s + "\n" + err_s).strip() if err_s else out_s
-        return combined
+        # Возвращаем stdout; если скрипт завершился с ошибкой — добавляем stderr
+        if proc.returncode != 0 and err_s:
+            return out_s + "\n⚠️ STDERR:\n" + err_s
+        return out_s
     except subprocess.TimeoutExpired:
         proc.kill()
         return "Команда заняла слишком много времени (>300 сек)."
@@ -87,27 +89,61 @@ def write_config(key: str, value: str):
     os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
     if not os.path.exists(CONFIG_FILE):
         open(CONFIG_FILE, 'a').close()
-    safe_val = value.replace('/', '\\/').replace('&', '\\&')
-    exists = subprocess.call(f"grep -q '^{key}=' {CONFIG_FILE}",
-                             shell=True, executable='/bin/bash') == 0
-    if exists:
-        cmd = f"sed -i 's/^{key}=.*/{key}={safe_val}/' {CONFIG_FILE}"
-    else:
-        cmd = f"echo '{key}={value}' >> {CONFIG_FILE}"
-    subprocess.run(cmd, shell=True, executable='/bin/bash')
+    try:
+        with open(CONFIG_FILE, 'r') as f:
+            lines = f.readlines()
+        found = False
+        new_lines = []
+        for l in lines:
+            if l.strip().startswith(f"{key}=") or l.strip() == f"{key}=":
+                new_lines.append(f"{key}={value}\n")
+                found = True
+            else:
+                new_lines.append(l)
+        if not found:
+            new_lines.append(f"{key}={value}\n")
+        with open(CONFIG_FILE, 'w') as f:
+            f.writelines(new_lines)
+    except Exception as e:
+        # fallback to append
+        with open(CONFIG_FILE, 'a') as f:
+            f.write(f"{key}={value}\n")
 
 
 def get_users():
-    out = run_sync("--list-users")
-    return [
-        u.strip() for u in out.splitlines()
-        if u.strip() and "Using config" not in u and "Error" not in u
-    ]
+    """Читаем файл пользователей напрямую — быстро и надёжно."""
+    if not os.path.exists(USERS_FILE):
+        return []
+    users = []
+    try:
+        with open(USERS_FILE, 'r') as f:
+            for l in f:
+                l = l.strip()
+                if '=' in l and not l.startswith('#'):
+                    users.append(l.split('=', 1)[0].strip())
+    except Exception:
+        pass
+    return users
 
 
 def get_user_conf(name):
-    out = run_sync(f"--show-user {name} | grep -E '://|^\\{{\"dns\"'")
-    return [l.strip() for l in out.splitlines() if l.strip()]
+    full = BASE_CMD + f"--show-user {name}"
+    try:
+        proc = subprocess.Popen(
+            full, shell=True, executable='/bin/bash',
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+        )
+        out, _ = proc.communicate(timeout=120)
+        result = []
+        for l in out.decode(errors='ignore').splitlines():
+            s = l.strip()
+            if not s:
+                continue
+            if '://' in s or s.startswith('{"dns"'):
+                result.append(s)
+        return result
+    except Exception:
+        return []
 
 
 def make_backup():
@@ -159,20 +195,35 @@ async def send_main_menu(bot, chat_id, text=None):
 async def send_settings_menu(bot, chat_id, text=None):
     c = read_config()
     warp = c.get("warp", "OFF")
+    transport = c.get("transport", "?")
+    security = c.get("security", "?")
+    port = c.get("port", "?")
+
+    # Предупреждения о специальных транспортах
+    notes = ""
+    if transport == "xdns":
+        notes = "\n⚠️ <b>xdns</b>: нужна NS-запись домена → этот сервер. Порт: 53/UDP."
+    elif transport == "xicmp":
+        notes = "\n⚠️ <b>xicmp</b>: требуется root/CAP_NET_RAW. Рекомендуется: sysctl net.ipv4.icmp_echo_ignore_all=1."
+    elif transport == "xhttp3":
+        notes = "\n⚠️ <b>xhttp3</b>: QUIC/H3 поверх UDP. Нужен открытый UDP порт."
+
     if not text:
         text = (
             "⚙️ <b>Настройки</b>\n"
             f"Core: <code>{c.get('core','?')}</code>\n"
-            f"Transport: <code>{c.get('transport','?')}</code>\n"
-            f"Security: <code>{c.get('security','?')}</code>\n"
-            f"Port: <code>{c.get('port','?')}</code>\n"
+            f"Transport: <code>{transport}</code>\n"
+            f"Security: <code>{security}</code>\n"
+            f"Port: <code>{port}</code>\n"
+            f"Server: <code>{c.get('server','?')}</code>\n"
             f"SNI: <code>{c.get('domain','?')}</code>\n"
             f"Path: <code>/{c.get('service_path','')}</code>\n"
             f"WARP: <b>{warp}</b>"
+            + notes
         )
     warp_btn = InlineKeyboardButton(
         "WARP OFF" if warp == "ON" else "WARP ON",
-        callback_data="set!warp!OFF" if warp == "ON" else "ask!warp_license"
+        callback_data="set!warp!OFF" if warp == "ON" else "sub!warp"
     )
     kb = [
         [
@@ -393,6 +444,10 @@ async def apply_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, para
     if param == "warp_license":
         write_config("warp", "ON")
         write_config("warp_license", val)
+    elif param == "warp_free":
+        # Бесплатный WARP — очищаем лицензию, просто включаем
+        write_config("warp", "ON")
+        write_config("warp_license", "")
     elif param == "warp" and val == "OFF":
         write_config("warp", "OFF")
     elif param == "service_path" and (val == "/" or val == ""):
@@ -401,7 +456,7 @@ async def apply_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, para
         write_config(param, val)
 
     # ── Применение ────────────────────────────────────────────────────────
-    wait_msg = "⏳ Включаю WARP... Это может занять 1-2 минуты" if param == "warp_license" else "⏳ Применяю настройки..."
+    wait_msg = "⏳ Включаю WARP... Это может занять 1-2 минуты" if param in ("warp_license", "warp_free") else "⏳ Применяю настройки..."
     await context.bot.send_message(chat_id, wait_msg)
     out = apply_reconfigure()
     snippet = out if len(out) < 3900 else out[:3900] + "\n...(truncated)"
@@ -533,6 +588,13 @@ async def cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     for o in opts[i:i+3]
                 ]
                 for i in range(0, len(opts), 3)
+            ]
+        elif arg == "warp":
+            kb = [
+                [
+                    InlineKeyboardButton("🆓 WARP бесплатный", callback_data="set!warp_free!ON"),
+                    InlineKeyboardButton("⭐ WARP+", callback_data="ask!warp_license"),
+                ],
             ]
         elif arg == "security":
             kb = [

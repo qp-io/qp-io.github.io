@@ -561,9 +561,8 @@ function build_config {
     echo 'Чтобы включить Telegram бота, вы должны указать список авторизованных админов с помощью опции --tgbot-admins.'
     exit 1
   fi
-  if [[ ${config[warp]} == 'ON' && -z ${config[warp_license]} ]]; then
-    echo 'Чтобы включить WARP+, вы должны указать лицензию WARP+ с помощью опции --warp-license.'
-    exit 1
+  if [[ ${config[warp]} == 'ON' && -z ${config[warp_license]} && -z ${config[warp_private_key]} ]]; then
+    echo 'Для WARP+ укажите лицензию через --warp-license. Для бесплатного WARP лицензия не нужна.'
   fi
   if [[ ! ${config[server]} =~ ${regex[domain]} && ${config[security]} == 'letsencrypt' ]]; then
     echo 'Вы должны назначить домен серверу с помощью опции "--server <domain>", если хотите использовать "letsencrypt".'
@@ -651,7 +650,9 @@ function build_config {
                                          -z ${config[warp_interface_ipv6]} ) ]]; }; then
     config[warp]='OFF'
     warp_create_account || exit 1
-    warp_add_license "${config[warp_id]}" "${config[warp_token]}" "${config[warp_license]}" || exit 1
+    if [[ -n "${config[warp_license]}" ]]; then
+      warp_add_license "${config[warp_id]}" "${config[warp_token]}" "${config[warp_license]}" || exit 1
+    fi
     config[warp]='ON'
   fi
   if [[ -n ${args[warp_license]} && -n ${config_file[warp_license]} && "${args[warp_license]}" != "${config_file[warp_license]}" ]]; then
@@ -769,7 +770,8 @@ services:
     $([[ ${config[transport]} == 'tuic' || ${config[transport]} == 'hysteria2' ]] && echo "ports:" || true)
     $([[ ${config[transport]} == 'tuic' || ${config[transport]} == 'hysteria2' ]] && echo "- ${config[port]}:8443/udp" || true)
     $([[ ${config[transport]} == 'xicmp' || ${config[transport]} == 'xdns' || ${config[transport]} == 'xhttp3' ]] && echo "ports:" || true)
-    $([[ ${config[transport]} == 'xicmp' || ${config[transport]} == 'xhttp3' ]] && echo "- ${config[port]}:8443/udp" || true)
+    $([[ ${config[transport]} == 'xhttp3' ]] && echo "- ${config[port]}:8443" || true)
+    $([[ ${config[transport]} == 'xhttp3' || ${config[transport]} == 'xicmp' ]] && echo "- ${config[port]}:8443/udp" || true)
     $([[ ${config[transport]} == 'xdns' ]] && echo "- 53:8053/udp" || true)
     $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[transport]} != 'shadowtls' && ${config[transport]} != 'xicmp' && ${config[transport]} != 'xdns' && ${config[transport]} != 'xhttp3' ]] && echo "expose:" || true)
     $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[transport]} != 'shadowtls' && ${config[transport]} != 'xicmp' && ${config[transport]} != 'xdns' && ${config[transport]} != 'xhttp3' ]] && echo "- 8443" || true)
@@ -778,8 +780,8 @@ services:
       TZ: Etc/UTC
     volumes:
     - ./${path[engine]#${config_path}/}:/etc/${config[core]}/config.json
-    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' ]] && { [[ ${config[transport]} == 'http' ]] || [[ ${config[transport]} == 'tcp' ]] || [[ ${config[transport]} == 'tuic' ]] || [[ ${config[transport]} == 'hysteria2' ]]; } && echo "- ./${path[server_crt]#${config_path}/}:/etc/${config[core]}/server.crt" || true)
-    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' ]] && { [[ ${config[transport]} == 'http' ]] || [[ ${config[transport]} == 'tcp' ]] || [[ ${config[transport]} == 'tuic' ]] || [[ ${config[transport]} == 'hysteria2' ]]; } && echo "- ./${path[server_key]#${config_path}/}:/etc/${config[core]}/server.key" || true)
+    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' ]] && { [[ ${config[transport]} == 'http' ]] || [[ ${config[transport]} == 'tcp' ]] || [[ ${config[transport]} == 'tuic' ]] || [[ ${config[transport]} == 'hysteria2' ]] || [[ ${config[transport]} == 'xhttp3' ]]; } && echo "- ./${path[server_crt]#${config_path}/}:/etc/${config[core]}/server.crt" || true)
+    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' ]] && { [[ ${config[transport]} == 'http' ]] || [[ ${config[transport]} == 'tcp' ]] || [[ ${config[transport]} == 'tuic' ]] || [[ ${config[transport]} == 'hysteria2' ]] || [[ ${config[transport]} == 'xhttp3' ]]; } && echo "- ./${path[server_key]#${config_path}/}:/etc/${config[core]}/server.key" || true)
     networks:
     - reality
 $(if [[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[transport]} != 'shadowtls' ]]; then
@@ -1334,8 +1336,8 @@ EOF
          fi)
         "network": "$([[ ${config[transport]} == 'xicmp' || ${config[transport]} == 'xdns' ]] && echo 'kcp' || { [[ ${config[transport]} == 'xhttp3' ]] && echo 'xhttp' || echo "${config[transport]}"; })",
         $(if [[ ${config[transport]} == 'xhttp3' ]]; then
-          echo '"tlsSettings": {"alpn": ["h3"], "fingerprint": "chrome", "certificates": [{"certificateFile": "/etc/xray/server.crt", "keyFile": "/etc/xray/server.key"}]},'
           echo '"security": "tls",'
+          echo '"tlsSettings": {"alpn": ["h3"], "fingerprint": "chrome", "certificates": [{"oneTimeLoading": true, "certificateFile": "/etc/xray/server.crt", "keyFile": "/etc/xray/server.key"}]},'
         elif [[ ${config[security]} == 'reality' ]]; then
           echo "${reality_object}"
         elif [[ ${config[security]} == 'notls' ]]; then
@@ -1446,7 +1448,8 @@ EOF
 function generate_config {
   generate_docker_compose
   generate_engine_config
-  if [[ ${config[security]} != "reality" && ${config[security]} != "notls" && ${config[transport]} != 'shadowtls' ]]; then
+  if [[ ${config[security]} != "reality" && ${config[security]} != "notls" && ${config[transport]} != 'shadowtls' ]] || \
+     [[ ${config[transport]} == 'xhttp3' ]]; then
     mkdir -p "${config_path}/certificate"
     generate_haproxy_config
     if [[ ! -r "${path[server_pem]}" || ! -r "${path[server_crt]}" || ! -r "${path[server_key]}" ]]; then
@@ -2527,7 +2530,7 @@ function warp_api {
 
 function warp_create_account {
   local response
-  docker run --rm -it -v "${config_path}":/data "${image[wgcf]}" register --config /data/wgcf-account.toml --accept-tos
+  docker run --rm -v "${config_path}":/data "${image[wgcf]}" register --config /data/wgcf-account.toml --accept-tos
   if [[ $? -ne 0 || ! -r ${config_path}/wgcf-account.toml ]]; then
     echo "Ошибка создания аккаунта WARP!"
     return 1
