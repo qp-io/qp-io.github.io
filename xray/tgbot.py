@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import os
 import re
-import asyncio
 import subprocess
 import logging
 import zipfile
@@ -32,14 +31,7 @@ USERS_FILE = os.path.join(DATA_DIR, 'users')
 BASE_CMD = (
     'function systemctl() { :; }; export -f systemctl; '
     'bash <(curl -sL https://raw.githubusercontent.com/qp-io/qp-io.github.io/refs/heads/main/xray/reality-ezpz.sh '
-    '| sed "s/docker run --rm -it/docker run --rm/g") '
-)
-
-COMPOSE_RESTART_CMD = (
-    'docker compose -p reality-ezpz --project-directory /opt/reality-ezpz '
-    'down --timeout 2 && '
-    'docker compose -p reality-ezpz --project-directory /opt/reality-ezpz '
-    'up -d --remove-orphans'
+    '| sed "s/ -it / -i /g") '
 )
 
 # --- Переменные окружения ---
@@ -48,39 +40,32 @@ if not TOKEN:
     raise SystemExit("BOT_TOKEN env is not set")
 
 ADMIN = os.environ.get('BOT_ADMIN', '')
-ADMINS = {x.strip() for x in ADMIN.split(',') if x.strip()}
 username_regex = re.compile(r"^[a-zA-Z0-9]+$")
 
 
 # --- Вспомогательные функции ---
-def run_sync(args: str) -> tuple[str, bool]:
-    """Возвращает (вывод, успех)"""
+def run_sync(args: str) -> str:
     full = BASE_CMD + (args if args else "")
     try:
         proc = subprocess.Popen(
             full, shell=True, executable='/bin/bash',
             stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
-        out, err = proc.communicate(timeout=300)
-        out_s = out.decode(errors='ignore').strip()
-        err_s = err.decode(errors='ignore').strip()
-        combined = (out_s + "\n" + err_s).strip() if err_s else out_s
-        success = proc.returncode == 0
-        return combined, success
+        out, err = proc.communicate(timeout=120)
+        out_s = out.decode(errors='ignore')
+        err_s = err.decode(errors='ignore')
+        if err_s:
+            return (out_s + "\n" + err_s).strip()
+        return out_s.strip()
     except subprocess.TimeoutExpired:
         proc.kill()
-        return "Команда заняла слишком много времени.", False
+        return "Команда заняла слишком много времени."
     except Exception as e:
-        return str(e), False
-
-async def run_async(args: str) -> tuple[str, bool]:
-    """Неблокирующий вызов run_sync через executor"""
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, run_sync, args)
+        return str(e)
 
 
-async def apply_reconfigure() -> tuple[str, bool]:
-    return await run_async("")
+def apply_reconfigure() -> str:
+    return run_sync("")
 
 
 def read_config():
@@ -113,27 +98,22 @@ def write_config(key: str, value: str):
     subprocess.run(cmd, shell=True, executable='/bin/bash')
 
 
-def get_users() -> dict:
-    """Читает пользователей напрямую из файла, без запуска скрипта"""
-    users = {}
-    if not os.path.exists(USERS_FILE):
-        return users
+def get_users():
+    out = run_sync("--list-users")
+    return [
+        u.strip() for u in out.splitlines()
+        if u.strip() and "Using config" not in u and "Error" not in u
+    ]
+
+
+def get_user_conf(name: str) -> list:
+    cmd = BASE_CMD + f"--show-user {name} | grep -E '://|^{chr(123)}\"dns\"'"
     try:
-        with open(USERS_FILE, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line and '=' in line and not line.startswith('#'):
-                    k, v = line.split('=', 1)
-                    users[k.strip()] = v.strip()
+        proc = subprocess.Popen(cmd, shell=True, executable='/bin/bash', stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        out, _ = proc.communicate(timeout=120)
+        return [l.strip() for l in out.decode(errors='ignore').splitlines() if l.strip()]
     except Exception:
-        pass
-    return users
-
-
-def get_user_conf(name):
-    out = run_sync(f"--show-user {name} | grep -E '://|^\\{{\"dns\"'")
-    return [l.strip() for l in out.splitlines() if l.strip()]
-
+        return []
 
 def make_backup():
     ts = datetime.now().strftime("%Y-%m-%d_%H-%M")
@@ -158,7 +138,8 @@ def restricted(func):
             return
         uid = str(u.id)
         uname = u.username or ""
-        if uid in ADMINS or (uname and uname in ADMINS):
+        admins = [x.strip() for x in ADMIN.split(',') if x.strip()]
+        if uid in admins or (uname and uname in admins):
             return await func(update, context, *a, **kw)
         await context.bot.send_message(chat_id=update.effective_chat.id, text="⛔ Нет доступа")
     return wrap
@@ -295,34 +276,28 @@ async def apply_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, para
     else:
         write_config(param, val)
     await context.bot.send_message(chat_id, "⏳ Применяю настройки...")
-    out, success = await apply_reconfigure()
-    icon = "✅" if success else "⚠️"
+    out = apply_reconfigure()
     snippet = out if len(out) < 3900 else out[:3900] + "\n...(truncated)"
     await context.bot.send_message(
         chat_id,
-        f"{icon} Настройки применены.\n<blockquote>{snippet}</blockquote>",
+        f"✅ Настройки применены.\n<blockquote>{snippet}</blockquote>",
         parse_mode="HTML"
     )
     await send_settings_menu(context.bot, chat_id)
-    # Перезапускаем только основной compose после отправки ответа
-    subprocess.Popen(COMPOSE_RESTART_CMD, shell=True, executable='/bin/bash')
 
 
 @restricted
 async def do_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     await context.bot.send_message(chat_id, "⏳ Перезапуск служб...")
-    out, success = await apply_reconfigure()
-    icon = "✅" if success else "⚠️"
+    out = apply_reconfigure()
     snippet = out if len(out) < 3900 else out[:3900] + "\n...(truncated)"
     await context.bot.send_message(
         chat_id,
-        f"{icon} Перезапуск завершён.\n<blockquote>{snippet}</blockquote>",
+        f"✅ Перезапуск завершён.\n<blockquote>{snippet}</blockquote>",
         parse_mode="HTML"
     )
     await send_settings_menu(context.bot, chat_id)
-    # Перезапускаем только основной compose после отправки ответа
-    subprocess.Popen(COMPOSE_RESTART_CMD, shell=True, executable='/bin/bash')
 
 
 @restricted
@@ -342,7 +317,6 @@ async def do_backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.delete_message(chat_id, msg.message_id)
 
 
-@restricted
 @restricted
 async def cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -407,7 +381,7 @@ async def cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup(kb)
         )
     elif cmd == "confirm_del":
-        await run_async(f"--delete-user {arg}")
+        run_sync(f"--delete-user {arg}")
         await context.bot.send_message(chat_id, "Удалён.")
         await menu_users(update, context)
     elif cmd == "ask":
@@ -449,7 +423,6 @@ async def cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @restricted
-@restricted
 async def msg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state = context.user_data.pop("state", None)
     text = update.message.text.strip()
@@ -459,7 +432,7 @@ async def msg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Недопустимое имя.")
             return
         await update.message.reply_text("Создаю пользователя...")
-        await run_async(f"--add-user {text}")
+        run_sync(f"--add-user {text}")
         await update.message.reply_text(f"✅ Создан: {text}")
         confs = get_user_conf(text)
         for c in confs:
@@ -493,9 +466,9 @@ async def msg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await apply_setting(update, context, key, text)
 
 
-# --- Обработчик /start ---
-@restricted
+# --- НОВЫЙ обработчик /start ---
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /start — доступен всем, но главное меню отправляется всегда."""
     await send_main_menu(context.bot, update.effective_chat.id)
 
 
