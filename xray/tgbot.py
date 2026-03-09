@@ -106,14 +106,22 @@ def get_users():
     ]
 
 
-def get_user_conf(name: str) -> list:
-    cmd = BASE_CMD + f"--show-user {name} | grep -E '://|^{chr(123)}\"dns\"'"
+def get_user_conf(name):
+    # Запускаем скрипт напрямую — пайп внутри аргумента BASE_CMD не работает
+    full = BASE_CMD + f"--show-user {name}"
     try:
-        proc = subprocess.Popen(cmd, shell=True, executable='/bin/bash', stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        proc = subprocess.Popen(
+            full, shell=True, executable='/bin/bash',
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+        )
         out, _ = proc.communicate(timeout=120)
-        return [l.strip() for l in out.decode(errors='ignore').splitlines() if l.strip()]
+        lines = out.decode(errors='ignore').splitlines()
+        # Берём строки с ссылкой (содержат "://") или JSON конфиг (shadowtls)
+        return [l.strip() for l in lines
+                if l.strip() and ('://' in l or l.strip().startswith('{"dns"'))]
     except Exception:
         return []
+
 
 def make_backup():
     ts = datetime.now().strftime("%Y-%m-%d_%H-%M")
@@ -348,6 +356,8 @@ async def cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     elif cmd == "u_show":
         confs = get_user_conf(arg)
+        if not confs:
+            await context.bot.send_message(chat_id, f"⚠️ Не удалось получить конфиг для <b>{arg}</b>", parse_mode="HTML")
         for c in confs:
             if not c:
                 continue
