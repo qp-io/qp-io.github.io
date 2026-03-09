@@ -261,12 +261,136 @@ async def ask_input(update: Update, context: ContextTypes.DEFAULT_TYPE, param: s
 @restricted
 async def apply_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, param: str, val: str):
     chat_id = update.effective_chat.id
-    extra_args = ""
+    c = read_config()
 
+    # ── Проверка совместимости — как в меню скрипта ───────────────────────
+    if param == "transport":
+        cur_core     = c.get("core", "xray")
+        cur_security = c.get("security", "reality")
+
+        # xhttp/xhttp3/xicmp/xdns — только xray
+        if val in ("xhttp", "xhttp3", "xicmp", "xdns") and cur_core != "xray":
+            await context.bot.send_message(
+                chat_id,
+                f'⚠️ Транспорт <b>{val}</b> несовместим с ядром <b>{cur_core}</b>.\n'
+                f'Сначала смените ядро или выберите другой транспорт.',
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("Сменить core → xray", callback_data="set!core!xray")],
+                    [InlineKeyboardButton("🔙 Настройки", callback_data="m_settings")]
+                ])
+            )
+            return
+
+        # xhttp3 — нельзя с reality
+        if val == "xhttp3" and cur_security == "reality":
+            await context.bot.send_message(
+                chat_id,
+                '⚠️ <b>xhttp3</b> использует QUIC/TLS и несовместим с <b>reality</b>.\n'
+                'Сначала смените security.',
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("security → selfsigned", callback_data="set!security!selfsigned"),
+                     InlineKeyboardButton("security → letsencrypt", callback_data="set!security!letsencrypt")],
+                    [InlineKeyboardButton("🔙 Настройки", callback_data="m_settings")]
+                ])
+            )
+            return
+
+        # xicmp/xdns — нельзя с tls (только notls/kcp)
+        if val in ("xicmp", "xdns") and cur_security != "notls":
+            await context.bot.send_message(
+                chat_id,
+                f'⚠️ <b>{val}</b> работает поверх kcp без TLS.\n'
+                f'Сначала смените security на notls.',
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("security → notls", callback_data="set!security!notls")],
+                    [InlineKeyboardButton("🔙 Настройки", callback_data="m_settings")]
+                ])
+            )
+            return
+
+        # tuic/hysteria2/shadowtls — только sing-box
+        if val in ("tuic", "hysteria2", "shadowtls") and cur_core == "xray":
+            await context.bot.send_message(
+                chat_id,
+                f'⚠️ Транспорт <b>{val}</b> несовместим с ядром <b>xray</b>.\n'
+                f'Сначала смените ядро.',
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("Сменить core → sing-box", callback_data="set!core!sing-box")],
+                    [InlineKeyboardButton("🔙 Настройки", callback_data="m_settings")]
+                ])
+            )
+            return
+
+        # tuic/hysteria2 — нельзя с reality
+        if val in ("tuic", "hysteria2") and cur_security == "reality":
+            await context.bot.send_message(
+                chat_id,
+                f'⚠️ Транспорт <b>{val}</b> несовместим с <b>reality</b>.\n'
+                f'Сначала смените security.',
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("security → selfsigned", callback_data="set!security!selfsigned"),
+                     InlineKeyboardButton("security → letsencrypt", callback_data="set!security!letsencrypt")],
+                    [InlineKeyboardButton("🔙 Настройки", callback_data="m_settings")]
+                ])
+            )
+            return
+
+        # ws — нельзя с reality
+        if val == "ws" and cur_security == "reality":
+            await context.bot.send_message(
+                chat_id,
+                '⚠️ Транспорт <b>ws</b> несовместим с <b>reality</b>.\n'
+                'Сначала смените security.',
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("security → selfsigned", callback_data="set!security!selfsigned"),
+                     InlineKeyboardButton("security → letsencrypt", callback_data="set!security!letsencrypt")],
+                    [InlineKeyboardButton("🔙 Настройки", callback_data="m_settings")]
+                ])
+            )
+            return
+
+    # Проверка: смена core на sing-box при несовместимом транспорте
+    if param == "core" and val == "sing-box":
+        cur_transport = c.get("transport", "tcp")
+        if cur_transport in ("xhttp", "xhttp3", "xicmp", "xdns"):
+            await context.bot.send_message(
+                chat_id,
+                f'⚠️ Транспорт <b>{cur_transport}</b> несовместим с ядром <b>sing-box</b>.\n'
+                f'Сначала смените транспорт.',
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("Transport → tcp", callback_data="set!transport!tcp"),
+                     InlineKeyboardButton("Transport → grpc", callback_data="set!transport!grpc")],
+                    [InlineKeyboardButton("🔙 Настройки", callback_data="m_settings")]
+                ])
+            )
+            return
+
+    # Проверка: смена security на reality при несовместимом транспорте
+    if param == "security" and val == "reality":
+        cur_transport = c.get("transport", "tcp")
+        if cur_transport in ("ws", "tuic", "hysteria2", "xhttp3", "xicmp", "xdns"):
+            await context.bot.send_message(
+                chat_id,
+                f'⚠️ Security <b>reality</b> несовместима с транспортом <b>{cur_transport}</b>.\n'
+                f'Сначала смените транспорт.',
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("Transport → tcp", callback_data="set!transport!tcp"),
+                     InlineKeyboardButton("Transport → xhttp", callback_data="set!transport!xhttp")],
+                    [InlineKeyboardButton("🔙 Настройки", callback_data="m_settings")]
+                ])
+            )
+            return
+
+    # ── Запись параметра ──────────────────────────────────────────────────
     if param == "warp_license":
-        # Записываем оба значения в конфиг, скрипт запускается без аргументов.
-        # Логика скрипта (строка 630): config[warp]==ON и ключи пустые ->
-        # вызывает warp_create_account + warp_add_license автоматически.
         write_config("warp", "ON")
         write_config("warp_license", val)
     elif param == "warp" and val == "OFF":
@@ -276,8 +400,9 @@ async def apply_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, para
     else:
         write_config(param, val)
 
-    warp_msg = "⏳ Включаю WARP... Это может занять 1-2 минуты" if param == "warp_license" else "⏳ Применяю настройки..."
-    await context.bot.send_message(chat_id, warp_msg)
+    # ── Применение ────────────────────────────────────────────────────────
+    wait_msg = "⏳ Включаю WARP... Это может занять 1-2 минуты" if param == "warp_license" else "⏳ Применяю настройки..."
+    await context.bot.send_message(chat_id, wait_msg)
     out = apply_reconfigure()
     snippet = out if len(out) < 3900 else out[:3900] + "\n...(truncated)"
     ok = out and "Команда успешно выполнена" in out
@@ -401,7 +526,7 @@ async def cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ]
             ]
         elif arg == "transport":
-            opts = ['tcp','http','grpc','ws','xhttp','tuic','hysteria2','shadowtls']
+            opts = ['tcp','http','grpc','ws','xhttp','xhttp3','xicmp','xdns','tuic','hysteria2','shadowtls']
             kb = [
                 [
                     InlineKeyboardButton(o, callback_data=f"set!transport!{o}")

@@ -138,7 +138,7 @@ function parse_args {
       -t|--transport)
         args[transport]="$2"
         case ${args[transport]} in
-          tcp|http|xhttp|grpc|ws|tuic|hysteria2|shadowtls)
+          tcp|http|xhttp|xhttp3|xicmp|xdns|grpc|ws|tuic|hysteria2|shadowtls)
             shift 2
             ;;
           *)
@@ -577,6 +577,22 @@ function build_config {
     echo 'Вы можете использовать транспорт "xhttp" только с ядром "xray". Смените ядро на xray.'
     exit 1
   fi
+  if [[ ${config[transport]} == 'xhttp3' && ${config[core]} != 'xray' ]]; then
+    echo 'Вы можете использовать транспорт "xhttp3" только с ядром "xray". Смените ядро на xray.'
+    exit 1
+  fi
+  if [[ ${config[transport]} == 'xhttp3' && ${config[security]} == 'reality' ]]; then
+    echo 'Транспорт "xhttp3" использует QUIC/TLS и несовместим с "reality". Смените security на letsencrypt или selfsigned.'
+    exit 1
+  fi
+  if [[ ${config[transport]} == 'xicmp' && ${config[core]} != 'xray' ]]; then
+    echo 'Вы можете использовать транспорт "xicmp" только с ядром "xray". Смените ядро на xray.'
+    exit 1
+  fi
+  if [[ ${config[transport]} == 'xdns' && ${config[core]} != 'xray' ]]; then
+    echo 'Вы можете использовать транспорт "xdns" только с ядром "xray". Смените ядро на xray.'
+    exit 1
+  fi
   if [[ ${config[transport]} == 'tuic' && ${config[security]} == 'reality' ]]; then
     echo 'Вы не можете использовать транспорт "tuic" с "reality". Используйте другой транспорт или измените безопасность на letsencrypt или selfsigned'
     exit 1
@@ -752,8 +768,11 @@ services:
     $([[ ${config[security]} == 'reality' || ${config[transport]} == 'shadowtls' || ${config[security]} == 'notls' ]] && echo "- ${config[port]}:8443" || true)
     $([[ ${config[transport]} == 'tuic' || ${config[transport]} == 'hysteria2' ]] && echo "ports:" || true)
     $([[ ${config[transport]} == 'tuic' || ${config[transport]} == 'hysteria2' ]] && echo "- ${config[port]}:8443/udp" || true)
-    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[transport]} != 'shadowtls' ]] && echo "expose:" || true)
-    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[transport]} != 'shadowtls' ]] && echo "- 8443" || true)
+    $([[ ${config[transport]} == 'xicmp' || ${config[transport]} == 'xdns' || ${config[transport]} == 'xhttp3' ]] && echo "ports:" || true)
+    $([[ ${config[transport]} == 'xicmp' || ${config[transport]} == 'xhttp3' ]] && echo "- ${config[port]}:8443/udp" || true)
+    $([[ ${config[transport]} == 'xdns' ]] && echo "- 53:8053/udp" || true)
+    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[transport]} != 'shadowtls' && ${config[transport]} != 'xicmp' && ${config[transport]} != 'xdns' && ${config[transport]} != 'xhttp3' ]] && echo "expose:" || true)
+    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[transport]} != 'shadowtls' && ${config[transport]} != 'xicmp' && ${config[transport]} != 'xdns' && ${config[transport]} != 'xhttp3' ]] && echo "- 8443" || true)
     restart: always
     environment:
       TZ: Etc/UTC
@@ -1298,14 +1317,26 @@ EOF
         $([[ ${config[transport]} == 'grpc' ]] && echo '"grpcSettings": {"serviceName": "'"${config[service_path]}"'"},' || true)
         $([[ ${config[transport]} == 'ws' ]] && echo '"wsSettings": {"headers": {"Host": "'"${config[host_header]}"'"}, "path": "/'"${config[service_path]}"'"},' || true)
         $([[ ${config[transport]} == 'http' ]] && echo '"httpSettings": {"host":["'"${config[server]}"'"], "path": "/'"${config[service_path]}"'"},' || true)
-        $(if [[ ${config[transport]} == 'xhttp' ]]; then
+        $(if [[ ${config[transport]} == 'xhttp' || ${config[transport]} == 'xhttp3' ]]; then
            echo '"xhttpSettings": {'
            if [[ -n ${config[host_header]} ]]; then echo '"host": "'"${config[host_header]}"'",'; fi
            echo '"path": "/'"${config[service_path]}"'"'
            echo '},'
         fi)
-        "network": "${config[transport]}",
-        $(if [[ ${config[security]} == 'reality' ]]; then
+        $(if [[ ${config[transport]} == 'xicmp' || ${config[transport]} == 'xdns' ]]; then
+           echo '"kcpSettings": {"mtu": 1350, "tti": 50, "uplinkCapacity": 5, "downlinkCapacity": 20, "congestion": false, "readBufferSize": 2, "writeBufferSize": 2},'
+         fi)
+        $(if [[ ${config[transport]} == 'xicmp' ]]; then
+           echo '"finalmask": {"udp": [{"type": "xicmp", "settings": {"id": 1234}}]},'
+         fi)
+        $(if [[ ${config[transport]} == 'xdns' ]]; then
+           echo '"finalmask": {"udp": [{"type": "xdns", "settings": {"domain": "'"${config[server]}"'"}}]},'
+         fi)
+        "network": "$([[ ${config[transport]} == 'xicmp' || ${config[transport]} == 'xdns' ]] && echo 'kcp' || { [[ ${config[transport]} == 'xhttp3' ]] && echo 'xhttp' || echo "${config[transport]}"; })",
+        $(if [[ ${config[transport]} == 'xhttp3' ]]; then
+          echo '"tlsSettings": {"alpn": ["h3"], "fingerprint": "chrome", "certificates": [{"certificateFile": "/etc/xray/server.crt", "keyFile": "/etc/xray/server.key"}]},'
+          echo '"security": "tls",'
+        elif [[ ${config[security]} == 'reality' ]]; then
           echo "${reality_object}"
         elif [[ ${config[security]} == 'notls' ]]; then
           echo '"security": "none"'
@@ -1471,19 +1502,23 @@ function print_client_configuration {
     client_config="${client_config}:${config[port]}"
     client_config="${client_config}?security=$([[ ${config[security]} == 'reality' ]] && echo reality || { [[ ${config[security]} == 'notls' ]] && echo none || echo tls; })"
     client_config="${client_config}&encryption=none"
-    client_config="${client_config}&alpn=$([[ ${config[transport]} == 'ws' ]] && echo 'http/1.1' || echo 'h2,http/1.1')"
+    client_config="${client_config}&alpn=$([[ ${config[transport]} == 'ws' ]] && echo 'http/1.1' || { [[ ${config[transport]} == 'xhttp3' ]] && echo 'h3' || echo 'h2,http/1.1'; })"
     client_config="${client_config}&headerType=none"
     client_config="${client_config}&fp=chrome"
-    client_config="${client_config}&type=${config[transport]}"
+    client_config="${client_config}&type=$([[ ${config[transport]} == 'xicmp' || ${config[transport]} == 'xdns' ]] && echo 'kcp' || { [[ ${config[transport]} == 'xhttp3' ]] && echo 'xhttp' || echo "${config[transport]}"; })"
+    client_config="${client_config}$([[ ${config[transport]} == 'xicmp' ]] && echo '&fm=xicmp%2Cid%3D1234' || true)"
+    client_config="${client_config}$([[ ${config[transport]} == 'xdns' ]] && echo "&fm=xdns%2Cdomain%3D${config[server]}" || true)"
     client_config="${client_config}&flow=$([[ ${config[transport]} == 'tcp' ]] && echo 'xtls-rprx-vision' || true)"
     client_config="${client_config}&sni=${config[domain]%%:*}"
     client_config="${client_config}$([[ ${config[transport]} == 'ws' || ${config[transport]} == 'http' ]] && echo "&host=${config[server]}" || true)"
     client_config="${client_config}$([[ ${config[security]} == 'reality' ]] && echo "&pbk=${config[public_key]}" || true)"
     client_config="${client_config}$([[ ${config[security]} == 'reality' ]] && echo "&sid=${config[short_id]}" || true)"
-    client_config="${client_config}$([[ ${config[transport]} == 'ws' || ${config[transport]} == 'http' || ${config[transport]} == 'xhttp' ]] && echo "&path=%2F${config[service_path]}" || true)"
+    client_config="${client_config}$([[ ${config[transport]} == 'ws' || ${config[transport]} == 'http' || ${config[transport]} == 'xhttp' || ${config[transport]} == 'xhttp3' ]] && echo "&path=%2F${config[service_path]}" || true)"
     client_config="${client_config}$([[ ${config[transport]} == 'xhttp' && -n ${config[host_header]} ]] && echo "&host=${config[host_header]}" || true)"
+    client_config="${client_config}$([[ ${config[transport]} == 'xhttp3' && -n ${config[host_header]} ]] && echo "&host=${config[host_header]}" || true)"
     client_config="${client_config}$([[ ${config[transport]} == 'ws' && -n ${config[host_header]} ]] && echo "&host=${config[host_header]}" || true)"
     client_config="${client_config}$([[ ${config[transport]} == 'xhttp' ]] && echo '&mode=auto' || true)"
+    client_config="${client_config}$([[ ${config[transport]} == 'xhttp3' ]] && echo '&mode=packet-up' || true)"
     client_config="${client_config}$([[ ${config[transport]} == 'grpc' ]] && echo '&mode=gun' || true)"
     client_config="${client_config}$([[ ${config[transport]} == 'grpc' ]] && echo "&serviceName=${config[service_path]}" || true)"
     client_config="${client_config}#${username}"
@@ -1953,6 +1988,18 @@ function config_core_menu {
       message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "xhttp" с ядром "sing-box". Смените ядро на "xray" или используйте другой транспорт.'
       continue
     fi
+    if [[ ${core} != 'xray' && ${config[transport]} == 'xhttp3' ]]; then
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "xhttp3" с ядром "sing-box". Смените ядро на "xray" или используйте другой транспорт.'
+      continue
+    fi
+    if [[ ${core} != 'xray' && ${config[transport]} == 'xicmp' ]]; then
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "xicmp" с ядром "sing-box". Смените ядро на "xray" или используйте другой транспорт.'
+      continue
+    fi
+    if [[ ${core} != 'xray' && ${config[transport]} == 'xdns' ]]; then
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "xdns" с ядром "sing-box". Смените ядро на "xray" или используйте другой транспорт.'
+      continue
+    fi
     config[core]=$core
     update_config_file
     break
@@ -1992,6 +2039,9 @@ function config_transport_menu {
       "tcp" "$([[ "${config[transport]}" == 'tcp' ]] && echo 'on' || echo 'off')" \
       "http" "$([[ "${config[transport]}" == 'http' ]] && echo 'on' || echo 'off')" \
       "xhttp" "$([[ "${config[transport]}" == 'xhttp' ]] && echo 'on' || echo 'off')" \
+      "xhttp3" "$([[ "${config[transport]}" == 'xhttp3' ]] && echo 'on' || echo 'off')" \
+      "xicmp" "$([[ "${config[transport]}" == 'xicmp' ]] && echo 'on' || echo 'off')" \
+      "xdns" "$([[ "${config[transport]}" == 'xdns' ]] && echo 'on' || echo 'off')" \
       "grpc" "$([[ "${config[transport]}" == 'grpc' ]] && echo 'on' || echo 'off')" \
       "ws" "$([[ "${config[transport]}" == 'ws' ]] && echo 'on' || echo 'off')" \
       "tuic" "$([[ "${config[transport]}" == 'tuic' ]] && echo 'on' || echo 'off')" \
@@ -2007,6 +2057,22 @@ function config_transport_menu {
     fi
     if [[ ${transport} == 'xhttp' && ${config[core]} != 'xray' ]]; then
       message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "xhttp" с ядром "sing-box". Используйте ядро "xray".'
+      continue
+    fi
+    if [[ ${transport} == 'xhttp3' && ${config[core]} != 'xray' ]]; then
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "xhttp3" с ядром "sing-box". Используйте ядро "xray".'
+      continue
+    fi
+    if [[ ${transport} == 'xhttp3' && ${config[security]} == 'reality' ]]; then
+      message_box 'Ошибка конфигурации' 'Транспорт "xhttp3" использует QUIC и несовместим с "reality". Смените security на letsencrypt или selfsigned.'
+      continue
+    fi
+    if [[ ${transport} == 'xicmp' && ${config[core]} != 'xray' ]]; then
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "xicmp" с ядром "sing-box". Используйте ядро "xray".'
+      continue
+    fi
+    if [[ ${transport} == 'xdns' && ${config[core]} != 'xray' ]]; then
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "xdns" с ядром "sing-box". Используйте ядро "xray".'
       continue
     fi
     if [[ ${transport} == 'tuic' && ${config[security]} == 'reality' ]]; then
@@ -2082,6 +2148,18 @@ function config_security_menu {
     fi
     if [[ ${config[transport]} == 'hysteria2' && ${security} == 'reality' ]]; then
       message_box 'Ошибка конфигурации' 'Вы не можете использовать сертификат "reality" с транспортом "hysteria2". Смените сертификат на "letsencrypt", "selfsigned" или используйте другой транспорт.'
+      continue
+    fi
+    if [[ ${config[transport]} == 'xhttp3' && ${security} == 'reality' ]]; then
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать сертификат "reality" с транспортом "xhttp3". xhttp3 требует TLS — смените на "letsencrypt" или "selfsigned".'
+      continue
+    fi
+    if [[ ${config[transport]} == 'xicmp' && ( ${security} == 'reality' || ${security} == 'letsencrypt' || ${security} == 'selfsigned' ) ]]; then
+      message_box 'Ошибка конфигурации' 'Транспорт "xicmp" работает поверх kcp без TLS. Используйте security "notls".'
+      continue
+    fi
+    if [[ ${config[transport]} == 'xdns' && ( ${security} == 'reality' || ${security} == 'letsencrypt' || ${security} == 'selfsigned' ) ]]; then
+      message_box 'Ошибка конфигурации' 'Транспорт "xdns" работает поверх kcp без TLS. Используйте security "notls".'
       continue
     fi
     if [[ ${security} == 'letsencrypt' && ${config[port]} -ne 443 ]]; then
@@ -2449,7 +2527,7 @@ function warp_api {
 
 function warp_create_account {
   local response
-  docker run --rm -v "${config_path}":/data "${image[wgcf]}" register --config /data/wgcf-account.toml --accept-tos
+  docker run --rm -it -v "${config_path}":/data "${image[wgcf]}" register --config /data/wgcf-account.toml --accept-tos
   if [[ $? -ne 0 || ! -r ${config_path}/wgcf-account.toml ]]; then
     echo "Ошибка создания аккаунта WARP!"
     return 1
