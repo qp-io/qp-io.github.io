@@ -3,7 +3,6 @@
 # Reality-EZPZ Installer Script with Menu
 # Автор: Основан на оригинальном скрипте от qp-io
 
-set -e
 
 # Цвета для вывода
 RED='\033[0;31m'
@@ -27,6 +26,82 @@ print_header() {
     echo "=================================================="
     print_color $CYAN "           Reality-EZPZ Installer"
     echo "=================================================="
+    echo ""
+}
+
+
+# Проверка — установлен ли уже Reality-EZPZ
+check_installed() {
+    if [[ -f "/usr/local/bin/reality-ezpz.sh" && -f "/usr/local/bin/vless" ]]; then
+        return 0
+    fi
+    return 1
+}
+
+# Функция обновления скрипта
+update_reality_ezpz() {
+    print_header
+    print_color $BLUE "🔄 Обновление Reality-EZPZ..."
+    echo ""
+
+    if ! check_installed; then
+        print_color $RED "❌ Reality-EZPZ не установлен. Сначала выполните установку."
+        exit 1
+    fi
+
+    # Получаем текущую версию (md5)
+    local old_md5=""
+    if [[ -f "/usr/local/bin/reality-ezpz.sh" ]]; then
+        old_md5=$(md5sum /usr/local/bin/reality-ezpz.sh | cut -d' ' -f1)
+    fi
+
+    print_color $CYAN "⬇️  Загрузка новой версии скрипта..."
+    local tmp_file
+    tmp_file=$(mktemp)
+
+    if ! curl -fsSL --retry 3 -m 30 \
+        "https://raw.githubusercontent.com/qp-io/qp-io.github.io/refs/heads/main/xray/reality-ezpz.sh" \
+        -o "$tmp_file"; then
+        print_color $RED "❌ Ошибка загрузки скрипта!"
+        rm -f "$tmp_file"
+        exit 1
+    fi
+
+    local new_md5
+    new_md5=$(md5sum "$tmp_file" | cut -d' ' -f1)
+
+    if [[ "$old_md5" == "$new_md5" ]]; then
+        print_color $GREEN "✅ У вас уже актуальная версия скрипта!"
+        rm -f "$tmp_file"
+        echo ""
+        return 0
+    fi
+
+    # Бэкап старого скрипта
+    cp /usr/local/bin/reality-ezpz.sh /usr/local/bin/reality-ezpz.sh.bak
+    print_color $CYAN "💾 Резервная копия сохранена: /usr/local/bin/reality-ezpz.sh.bak"
+
+    # Устанавливаем новый скрипт
+    mv "$tmp_file" /usr/local/bin/reality-ezpz.sh
+    chmod +x /usr/local/bin/reality-ezpz.sh
+
+    print_color $GREEN "✅ Скрипт успешно обновлён!"
+    echo ""
+
+    # Обновляем vless wrapper (на случай если он тоже изменился)
+    setup_vless_alias
+
+    print_color $GREEN "🎉 Обновление завершено!"
+    echo ""
+
+    # Перезапускаем сервисы после обновления
+    print_color $YELLOW "Перезапустить сервисы с новой версией? (y/n)"
+    read -p "Ответ: " do_restart
+    if [[ "$do_restart" =~ ^[Yy]$ ]]; then
+        print_color $BLUE "🔄 Перезапуск сервисов..."
+        /usr/local/bin/reality-ezpz.sh --restart
+        print_color $GREEN "✅ Сервисы перезапущены!"
+    fi
     echo ""
 }
 
@@ -224,7 +299,7 @@ install_reality_ezpz() {
     
     # Загружаем оригинальный скрипт в /usr/local/bin
     print_color $CYAN "Загрузка оригинального скрипта..."
-    if ! curl -fsSL -o "/usr/local/bin/reality-ezpz.sh" "https://raw.githubusercontent.com/qp-io/qp-io.github.io/refs/heads/main/xray/reality-ezpz.sh"; then
+    if ! curl -fsSL --retry 3 -m 30 -o "/usr/local/bin/reality-ezpz.sh" "https://raw.githubusercontent.com/qp-io/qp-io.github.io/refs/heads/main/xray/reality-ezpz.sh"; then
         print_color $RED "❌ Ошибка загрузки скрипта!"
         exit 1
     fi
@@ -335,6 +410,18 @@ case "${1:-}" in
             exit 1
         fi
         exec "$REALITY_SCRIPT" --show-user "$2"
+        ;;
+    update|upgrade)
+        print_color() { echo -e "$2"; }
+        if [[ ! -f "/usr/local/bin/install.sh" ]]; then
+            echo "⬇️  Загрузка установщика для обновления..."
+            curl -fsSL --retry 3 -m 30 \
+                "https://raw.githubusercontent.com/qp-io/qp-io.github.io/refs/heads/main/xray/install.sh" \
+                -o /tmp/install_update.sh && bash /tmp/install_update.sh --update || \
+            bash <(curl -fsSL https://raw.githubusercontent.com/qp-io/qp-io.github.io/refs/heads/main/xray/install.sh) --update
+        else
+            bash /usr/local/bin/install.sh --update
+        fi
         ;;
     backup)
         exec "$REALITY_SCRIPT" --backup
@@ -462,7 +549,44 @@ main() {
         print_color $YELLOW "Используйте: sudo $0"
         exit 1
     fi
-    
+
+    # Проверка — уже установлен?
+    if check_installed; then
+        print_header
+        print_color $GREEN "✅ Reality-EZPZ уже установлен!"
+        echo ""
+        print_color $BLUE "Что вы хотите сделать?"
+        echo ""
+        echo "1) Обновить скрипт до последней версии"
+        echo "2) Переустановить заново"
+        echo "3) Открыть меню управления"
+        echo "4) Выйти"
+        echo ""
+        while true; do
+            read -p "Введите ваш выбор (1-4): " already_choice
+            case $already_choice in
+                1)
+                    update_reality_ezpz
+                    exit 0
+                    ;;
+                2)
+                    print_color $YELLOW "⚠️  Переустановка поверх существующей..."
+                    echo ""
+                    break
+                    ;;
+                3)
+                    exec /usr/local/bin/vless -m
+                    ;;
+                4)
+                    exit 0
+                    ;;
+                *)
+                    print_color $RED "❌ Неверный выбор."
+                    ;;
+            esac
+        done
+    fi
+
     # Инициализация переменных
     CORE=""
     USE_TELEGRAM_BOT=false
@@ -533,6 +657,25 @@ main() {
     
     echo ""
 }
+
+# Поддержка --update флага для вызова из vless wrapper
+if [[ "${1:-}" == "--update" ]]; then
+    if [[ $EUID -ne 0 ]]; then
+        echo "❌ Требуются права root!"
+        exit 1
+    fi
+    # Определяем функции которые нужны для update
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    BLUE='\033[0;34m'
+    CYAN='\033[0;36m'
+    NC='\033[0m'
+    print_color() { echo -e "${1}${2}${NC}"; }
+    print_header() { clear; echo "=================================================="; echo "           Reality-EZPZ Updater"; echo "=================================================="; echo ""; }
+    update_reality_ezpz
+    exit 0
+fi
 
 # Запуск главной функции
 main "$@"
