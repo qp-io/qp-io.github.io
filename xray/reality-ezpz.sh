@@ -1077,6 +1077,7 @@ function generate_engine_config {
     }'
     tls_object='"tls": {
       "enabled": true,
+      "server_name": "'"${config[server]}"'",
       "certificate_path": "/etc/sing-box/server.crt",
       "key_path": "/etc/sing-box/server.key"
     }'
@@ -1084,18 +1085,20 @@ function generate_engine_config {
       warp_object='{
         "type": "wireguard",
         "tag": "warp",
-        "server": "engage.cloudflareclient.com",
-        "server_port": 2408,
-        "system_interface": false,
-        "local_address": [
+        "address": [
           "'"${config[warp_interface_ipv4]}"'/32",
           "'"${config[warp_interface_ipv6]}"'/128"
         ],
         "private_key": "'"${config[warp_private_key]}"'",
-        "peer_public_key": "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
-        "reserved": '"$(warp_decode_reserved "${config[warp_client_id]}")"',
+        "peers": [{
+          "address": "engage.cloudflareclient.com",
+          "port": 2408,
+          "public_key": "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
+          "reserved": '"$(warp_decode_reserved "${config[warp_client_id]}")"',
+          "allowed_ips": ["0.0.0.0/0", "::/0"]
+        }],
         "mtu": 1280
-      },'
+      }'
     fi
     for user in "${!users[@]}"; do
       if [ -n "$users_object" ]; then
@@ -1119,7 +1122,7 @@ function generate_engine_config {
   },
   "dns": {
     "servers": [
-    $([[ ${config[safenet]} == ON ]] && echo '{"address": "tcp://1.1.1.3", "detour": "internet"},{"address": "tcp://1.0.0.3", "detour": "internet"}' || echo '{"address": "tcp://1.1.1.1", "detour": "internet"},{"address": "tcp://1.0.0.1", "detour": "internet"}')
+    $([[ ${config[safenet]} == ON ]] && echo '{"type": "tcp", "server": "1.1.1.3", "tag": "dns-safe", "detour": "internet"},{"type": "tcp", "server": "1.0.0.3", "tag": "dns-safe2", "detour": "internet"}' || echo '{"type": "tcp", "server": "1.1.1.1", "tag": "dns-main", "detour": "internet"},{"type": "tcp", "server": "1.0.0.1", "tag": "dns-main2", "detour": "internet"}')
     ],
     "strategy": "prefer_ipv4"
   },
@@ -1134,11 +1137,9 @@ function generate_engine_config {
     },
     {
       "type": "${type}",
+      "tag": "inbound",
       "listen": "::",
       "listen_port": 8443,
-      "sniff": true,
-      "sniff_override_destination": true,
-      "domain_strategy": "prefer_ipv4",
       "users": [${users_object}],
       $(if [[ ${config[security]} == 'reality' && ${config[transport]} != 'shadowtls' ]]; then
         echo "${reality_object}"
@@ -1166,7 +1167,7 @@ function generate_engine_config {
       echo '"congestion_control": "bbr", "auth_timeout": "3s", "zero_rtt_handshake": false, "heartbeat": "10s"'
       fi
       if [[ ${config[transport]} == hysteria2 ]]; then
-      echo '"obfs": {"type": "salamander", "password": "'"${config[service_path]}"'"}, "ignore_client_bandwidth": true, "masquerade": "https://'"${config[server]}:${config[port]}"'"'
+      echo '"obfs": {"type": "salamander", "password": "'"${config[service_path]}"'"}, "ignore_client_bandwidth": true, "masquerade": "https://www.bing.com"'
       fi
       if [[ ${config[transport]} == shadowtls ]]; then
       echo '"version": 3, "strict_mode": false, "detour": "shadowsocks", "handshake": {"server": "'"${config[domain]%%:*}"'", "server_port": '"${reality_port}"'}'
@@ -1179,28 +1180,53 @@ function generate_engine_config {
       "tag": "shadowsocks",
       "listen": "127.0.0.1",
       "listen_port": 8444,
-      "sniff": true,
-      "sniff_override_destination": true,
-      "domain_strategy": "prefer_ipv4",
       "method": "chacha20-ietf-poly1305",
       "password": "'"${config[private_key]}"'",
       "users": ['"${users_object}"']
     }'
     fi )
   ],
+  $([[ ${config[warp]} == ON ]] && echo '"endpoints": [' || true)
+  $([[ ${config[warp]} == ON ]] && echo "${warp_object}" || true)
+  $([[ ${config[warp]} == ON ]] && echo '],' || true)
   "outbounds": [
     {
       "type": "direct",
       "tag": "internet"
-    },
-    $([[ ${config[warp]} == ON ]] && echo "${warp_object}" || true)
-    {
-      "type": "block",
-      "tag": "block"
     }
   ],
   "route": {
     "final": "$([[ ${config[warp]} == ON ]] && echo "warp" || echo "internet")",
+    "rules": [
+      {
+        "inbound": "inbound",
+        "action": "sniff"
+      },
+      {
+        "inbound": "inbound",
+        "action": "resolve",
+        "strategy": "prefer_ipv4"
+      }
+      $(if [[ ${config[warp]} == OFF ]]; then echo ',
+      {
+        "rule_set": ["bypass"],
+        "action": "reject"
+      }'; fi)
+      $(if [[ ${config[safenet]} == ON ]]; then echo ',
+      {
+        "rule_set": ["nsfw"],
+        "action": "reject"
+      }'; fi)
+      ,{
+        "rule_set": ["block", "geoip-private", "geosite-private"],
+        "action": "reject"
+      },
+      {
+        "network": "tcp",
+        "port": [25, 587, 465, 2525],
+        "action": "reject"
+      }
+    ],
     "rule_set": [
       {
         "tag": "block",
@@ -1238,28 +1264,7 @@ function generate_engine_config {
         "download_detour": "internet"
       }
     ],
-    "rules": [
-      {
-        "rule_set": [
-          "block",
-          "geoip-private",
-          "geosite-private"
-          $([[ ${config[safenet]} == ON ]] && echo ',"nsfw"' || true)
-          $([[ ${config[warp]} == OFF ]] && echo ',"bypass"')
-        ],
-        "outbound": "block"
-      },
-      {
-        "network": "tcp",
-        "port": [
-          25,
-          587,
-          465,
-          2525
-        ],
-        "outbound": "block"
-      }
-    ]
+
   },
   "experimental": {
     "cache_file": {
