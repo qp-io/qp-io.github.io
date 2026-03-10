@@ -12,10 +12,25 @@ declare -A md5
 declare -A regex
 declare -A image
 
-config_path="/opt/reality-ezpz"
-compose_project='reality-ezpz'
-tgbot_project='tgbot'
-BACKTITLE="Панель управления RealityEZPZ"
+# Путь к данным инстанса — переопределяется через REALITY_CONFIG_PATH для мульти-инстанс
+config_path="${REALITY_CONFIG_PATH:-/opt/reality-ezpz}"
+# Имя инстанса = последний компонент пути
+# /opt/reality-ezpz          -> instance_name=reality-ezpz  (совместимо со старым!)
+# /opt/reality-ezpz-instances/main -> instance_name=main
+instance_name="$(basename "${config_path}")"
+# compose_project = instance_name без дополнительного префикса
+# -> /opt/reality-ezpz: compose_project=reality-ezpz (совпадает со старым проектом!)
+# -> /opt/.../main:    compose_project=main
+compose_project="${instance_name}"
+tgbot_project="tgbot-${instance_name}"
+# Уникальные IPv6 подсети — детерминированно из instance_name (избегаем конфликтов)
+# Используем hex-форматирование для корректной записи IPv6
+_sn_idx=$(printf '%s' "${instance_name}" | cksum | awk '{print ($1 % 3800) + 100}')
+_sn_main=$(( _sn_idx * 2 ))
+_sn_tgbot=$(( _sn_idx * 2 + 1 ))
+subnet_main="fc12::$(printf '%x' ${_sn_main}):0/112"
+subnet_tgbot="fc12::$(printf '%x' ${_sn_tgbot}):0/112"
+BACKTITLE="Панель управления RealityEZPZ [${instance_name}]"
 MENU="Выберите действие:"
 HEIGHT=30
 WIDTH=65
@@ -138,7 +153,7 @@ function parse_args {
       -t|--transport)
         args[transport]="$2"
         case ${args[transport]} in
-          tcp|http|xhttp|xhttp3|grpc|ws|tuic|hysteria2|shadowtls)
+          tcp|http|xhttp|grpc|ws|tuic|hysteria2|shadowtls)
             shift 2
             ;;
           *)
@@ -561,9 +576,6 @@ function build_config {
     echo 'Чтобы включить Telegram бота, вы должны указать список авторизованных админов с помощью опции --tgbot-admins.'
     exit 1
   fi
-  if [[ ${config[warp]} == 'ON' && -z ${config[warp_license]} && -z ${config[warp_private_key]} ]]; then
-    true  # Бесплатный WARP — лицензия необязательна
-  fi
   if [[ ! ${config[server]} =~ ${regex[domain]} && ${config[security]} == 'letsencrypt' ]]; then
     echo 'Вы должны назначить домен серверу с помощью опции "--server <domain>", если хотите использовать "letsencrypt".'
     exit 1
@@ -574,18 +586,6 @@ function build_config {
   fi
   if [[ ${config[transport]} == 'xhttp' && ${config[core]} != 'xray' ]]; then
     echo 'Вы можете использовать транспорт "xhttp" только с ядром "xray". Смените ядро на xray.'
-    exit 1
-  fi
-  if [[ ${config[transport]} == 'xhttp3' && ${config[core]} != 'xray' ]]; then
-    echo 'Вы можете использовать транспорт "xhttp3" только с ядром "xray". Смените ядро на xray.'
-    exit 1
-  fi
-  if [[ ${config[transport]} == 'xhttp3' && ${config[security]} == 'reality' ]]; then
-    echo 'Транспорт "xhttp3" (mode=packet-up) несовместим с "reality". Используйте letsencrypt или selfsigned.'
-    exit 1
-  fi
-  if [[ ${config[transport]} == 'xhttp3' && ${config[security]} == 'notls' ]]; then
-    echo 'Транспорт "xhttp3" требует TLS. Используйте letsencrypt или selfsigned.'
     exit 1
   fi
   if [[ ${config[transport]} == 'tuic' && ${config[security]} == 'reality' ]]; then
@@ -730,9 +730,42 @@ function install_packages {
 function install_docker {
   if ! which docker >/dev/null 2>&1; then
     curl -fsSL -m 5 https://get.docker.com | bash
-    systemctl enable --now docker
+    # systemctl может не работать в некоторых окружениях — пробуем несколько способов
+    if command -v systemctl >/dev/null 2>&1 && systemctl is-system-running >/dev/null 2>&1; then
+      systemctl enable --now docker 2>/dev/null || true
+    elif command -v service >/dev/null 2>&1; then
+      service docker start 2>/dev/null || true
+    fi
+    # Ждём запуска dockerd напрямую если демон ещё не запущен
+    if ! docker info >/dev/null 2>&1; then
+      dockerd &>/var/log/dockerd-startup.log &
+      local i=0
+      while ! docker info >/dev/null 2>&1 && (( i < 15 )); do
+        sleep 1; (( i++ ))
+      done
+    fi
     docker_cmd="docker compose"
     return 0
+  fi
+  # Docker установлен, но демон не запущен — пробуем запустить
+  if ! docker info >/dev/null 2>&1; then
+    if command -v systemctl >/dev/null 2>&1 && systemctl is-system-running >/dev/null 2>&1; then
+      systemctl start docker 2>/dev/null || true
+    elif command -v service >/dev/null 2>&1; then
+      service docker start 2>/dev/null || true
+    fi
+    if ! docker info >/dev/null 2>&1; then
+      dockerd &>/var/log/dockerd-startup.log &
+      local i=0
+      while ! docker info >/dev/null 2>&1 && (( i < 15 )); do
+        sleep 1; (( i++ ))
+      done
+    fi
+    if ! docker info >/dev/null 2>&1; then
+      echo "Ошибка: не удалось запустить Docker daemon."
+      echo "Запустите вручную: systemctl start docker  (или service docker start)"
+      return 1
+    fi
   fi
   if docker compose >/dev/null 2>&1; then
     docker_cmd="docker compose"
@@ -756,7 +789,7 @@ networks:
     enable_ipv6: true
     ipam:
       config:
-      - subnet: fc11::1:0/112
+      - subnet: ${subnet_main}
 services:
   engine:
     image: ${image[${config[core]}]}
@@ -830,7 +863,7 @@ networks:
     enable_ipv6: true
     ipam:
       config:
-      - subnet: fc11::2:0/112
+      - subnet: ${subnet_tgbot}
 services:
   tgbot:
     build: ./
@@ -840,7 +873,7 @@ services:
       BOT_ADMIN: ${config[tgbot_admins]}
     volumes:
     - /var/run/docker.sock:/var/run/docker.sock
-    - ../:${config_path}
+    - ..:/opt/reality-ezpz
     - /etc/docker/:/etc/docker/
     networks:
     - tgbot
@@ -987,7 +1020,7 @@ EOF
 function generate_tgbot_dockerfile {
   cat >"${path[tgbot_dockerfile]}" << EOF
 FROM ${image[python]}
-WORKDIR ${config_path}/tgbot
+WORKDIR /opt/reality-ezpz/tgbot
 RUN apk add --no-cache docker-cli-compose curl bash newt libqrencode-tools sudo openssl jq zip unzip
 RUN pip install --no-cache-dir python-telegram-bot==22.3 qrcode[pil]==8.2
 CMD [ "python", "./tgbot.py" ]
@@ -1111,7 +1144,9 @@ function generate_engine_config {
         echo "${reality_object}"
       elif [[ ${config[security]} == 'notls' ]]; then
         echo '"tls":{"enabled": false}'
-      elif [[ ${config[transport]} == 'http' || ${config[transport]} == 'tcp' || ${config[transport]} == 'tuic' || ${config[transport]} == 'hysteria2' ]]; then
+      elif [[ ${config[transport]} == 'tuic' || ${config[transport]} == 'hysteria2' ]]; then
+        echo "${tls_object},"
+      elif [[ ${config[transport]} == 'http' || ${config[transport]} == 'tcp' ]]; then
         echo "${tls_object}"
       elif [[ ${config[transport]} == 'shadowtls' ]]; then
         :
@@ -1128,10 +1163,10 @@ function generate_engine_config {
       echo ',"transport": {"type": "ws", "headers": {"Host": "'"${config[host_header]}"'"}, "path": "/'"${config[service_path]}"'"}'
       fi
       if [[ ${config[transport]} == tuic ]]; then
-      echo ',"congestion_control": "bbr", "auth_timeout": "3s", "zero_rtt_handshake": false, "heartbeat": "10s"'
+      echo '"congestion_control": "bbr", "auth_timeout": "3s", "zero_rtt_handshake": false, "heartbeat": "10s"'
       fi
       if [[ ${config[transport]} == hysteria2 ]]; then
-      echo ',"obfs": {"type": "salamander", "password": "'"${config[service_path]}"'"}, "ignore_client_bandwidth": true, "masquerade": "https://'"${config[server]}:${config[port]}"'"'
+      echo '"obfs": {"type": "salamander", "password": "'"${config[service_path]}"'"}, "ignore_client_bandwidth": true, "masquerade": "https://'"${config[server]}:${config[port]}"'"'
       fi
       if [[ ${config[transport]} == shadowtls ]]; then
       echo '"version": 3, "strict_mode": false, "detour": "shadowsocks", "handshake": {"server": "'"${config[domain]%%:*}"'", "server_port": '"${reality_port}"'}'
@@ -1317,14 +1352,7 @@ EOF
            echo '"path": "/'"${config[service_path]}"'"'
            echo '},'
         fi)
-        $(if [[ ${config[transport]} == 'xhttp3' ]]; then
-           echo '"xhttpSettings": {'
-           if [[ -n ${config[host_header]} ]]; then echo '"host": "'"${config[host_header]}"'",'; fi
-           echo '"path": "/'"${config[service_path]}"'",'
-           echo '"mode": "packet-up"'
-           echo '},'
-        fi)
-        "network": "$([[ ${config[transport]} == 'xhttp3' ]] && echo 'xhttp' || echo "${config[transport]}")",
+        "network": "${config[transport]}",
         $(if [[ ${config[security]} == 'reality' ]]; then
           echo "${reality_object}"
         elif [[ ${config[security]} == 'notls' ]]; then
@@ -1494,18 +1522,16 @@ function print_client_configuration {
     client_config="${client_config}&alpn=$([[ ${config[transport]} == 'ws' ]] && echo 'http/1.1' || echo 'h2,http/1.1')"
     client_config="${client_config}&headerType=none"
     client_config="${client_config}&fp=chrome"
-    client_config="${client_config}&type=$([[ ${config[transport]} == 'xhttp3' ]] && echo 'xhttp' || echo "${config[transport]}")"
+    client_config="${client_config}&type=${config[transport]}"
     client_config="${client_config}&flow=$([[ ${config[transport]} == 'tcp' ]] && echo 'xtls-rprx-vision' || true)"
     client_config="${client_config}&sni=${config[domain]%%:*}"
     client_config="${client_config}$([[ ${config[transport]} == 'ws' || ${config[transport]} == 'http' ]] && echo "&host=${config[server]}" || true)"
     client_config="${client_config}$([[ ${config[security]} == 'reality' ]] && echo "&pbk=${config[public_key]}" || true)"
     client_config="${client_config}$([[ ${config[security]} == 'reality' ]] && echo "&sid=${config[short_id]}" || true)"
-    client_config="${client_config}$([[ ${config[transport]} == 'ws' || ${config[transport]} == 'http' || ${config[transport]} == 'xhttp' || ${config[transport]} == 'xhttp3' ]] && echo "&path=%2F${config[service_path]}" || true)"
+    client_config="${client_config}$([[ ${config[transport]} == 'ws' || ${config[transport]} == 'http' || ${config[transport]} == 'xhttp' ]] && echo "&path=%2F${config[service_path]}" || true)"
     client_config="${client_config}$([[ ${config[transport]} == 'xhttp' && -n ${config[host_header]} ]] && echo "&host=${config[host_header]}" || true)"
-    client_config="${client_config}$([[ ${config[transport]} == 'xhttp3' && -n ${config[host_header]} ]] && echo "&host=${config[host_header]}" || true)"
     client_config="${client_config}$([[ ${config[transport]} == 'ws' && -n ${config[host_header]} ]] && echo "&host=${config[host_header]}" || true)"
     client_config="${client_config}$([[ ${config[transport]} == 'xhttp' ]] && echo '&mode=auto' || true)"
-    client_config="${client_config}$([[ ${config[transport]} == 'xhttp3' ]] && echo '&mode=packet-up' || true)"
     client_config="${client_config}$([[ ${config[transport]} == 'grpc' ]] && echo '&mode=gun' || true)"
     client_config="${client_config}$([[ ${config[transport]} == 'grpc' ]] && echo "&serviceName=${config[service_path]}" || true)"
     client_config="${client_config}#${username}"
@@ -1744,9 +1770,8 @@ ID: ${users[$username]}
 Flow: $([[ ${config[transport]} == 'tcp' ]] && echo 'xtls-rprx-vision' || true)
 Сеть: ${config[transport]}
 $([[ ${config[transport]} == 'ws' || ${config[transport]} == 'http' ]] && echo "Заголовок Host: ${config[server]}" || true)
-$([[ ${config[transport]} == 'ws' || ${config[transport]} == 'http' || ${config[transport]} == 'xhttp' || ${config[transport]} == 'xhttp3' ]] && echo "Путь: /${config[service_path]}" || true)
+$([[ ${config[transport]} == 'ws' || ${config[transport]} == 'http' || ${config[transport]} == 'xhttp' ]] && echo "Путь: /${config[service_path]}" || true)
 $([[ ${config[transport]} == 'xhttp' ]] && echo "Режим: auto" || true)
-$([[ ${config[transport]} == 'xhttp3' ]] && echo "Режим: packet-up" || true)
 $([[ ${config[transport]} == 'grpc' ]] && echo 'Режим gRPC: gun' || true)
 $([[ ${config[transport]} == 'grpc' ]] && echo 'gRPC serviceName: '"${config[service_path]}" || true)
 TLS: $([[ ${config[security]} == 'reality' ]] && echo 'reality' || { [[ ${config[security]} == 'notls' ]] && echo 'none' || echo 'tls'; })
@@ -1976,10 +2001,6 @@ function config_core_menu {
       message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "xhttp" с ядром "sing-box". Смените ядро на "xray" или используйте другой транспорт.'
       continue
     fi
-    if [[ ${core} != 'xray' && ${config[transport]} == 'xhttp3' ]]; then
-      message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "xhttp3" с ядром "sing-box". Смените ядро на "xray" или используйте другой транспорт.'
-      continue
-    fi
     config[core]=$core
     update_config_file
     break
@@ -2019,7 +2040,6 @@ function config_transport_menu {
       "tcp" "$([[ "${config[transport]}" == 'tcp' ]] && echo 'on' || echo 'off')" \
       "http" "$([[ "${config[transport]}" == 'http' ]] && echo 'on' || echo 'off')" \
       "xhttp" "$([[ "${config[transport]}" == 'xhttp' ]] && echo 'on' || echo 'off')" \
-      "xhttp3" "$([[ "${config[transport]}" == 'xhttp3' ]] && echo 'on' || echo 'off')" \
       "grpc" "$([[ "${config[transport]}" == 'grpc' ]] && echo 'on' || echo 'off')" \
       "ws" "$([[ "${config[transport]}" == 'ws' ]] && echo 'on' || echo 'off')" \
       "tuic" "$([[ "${config[transport]}" == 'tuic' ]] && echo 'on' || echo 'off')" \
@@ -2035,18 +2055,6 @@ function config_transport_menu {
     fi
     if [[ ${transport} == 'xhttp' && ${config[core]} != 'xray' ]]; then
       message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "xhttp" с ядром "sing-box". Используйте ядро "xray".'
-      continue
-    fi
-    if [[ ${transport} == 'xhttp3' && ${config[core]} != 'xray' ]]; then
-      message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "xhttp3" с ядром "sing-box". Используйте ядро "xray".'
-      continue
-    fi
-    if [[ ${transport} == 'xhttp3' && ${config[security]} == 'reality' ]]; then
-      message_box 'Ошибка конфигурации' 'Транспорт "xhttp3" (mode=packet-up) несовместим с "reality". Используйте letsencrypt или selfsigned.'
-      continue
-    fi
-    if [[ ${transport} == 'xhttp3' && ${config[security]} == 'notls' ]]; then
-      message_box 'Ошибка конфигурации' 'Транспорт "xhttp3" требует TLS. Используйте letsencrypt или selfsigned.'
       continue
     fi
     if [[ ${transport} == 'tuic' && ${config[security]} == 'reality' ]]; then
