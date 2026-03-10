@@ -582,27 +582,36 @@ try_migrate_legacy() {
 
 # ─── Точка входа ──────────────────────────────────────────────────────────────
 
+# При запуске через bash <(curl ...) stdin занят pipe'ом — перепривязываем к терминалу
+exec < /dev/tty
+
 if [[ "${EUID}" -ne 0 ]]; then
-    p "$RED" "❌ Требуются права root. Запустите: sudo $0"
+    p "$RED" "❌ Требуются права root. Запустите: sudo bash <(curl -sL URL)"
     exit 1
 fi
 
 mkdir -p "$INSTANCES_DIR" "$BIN_DIR"
 export PATH="$BIN_DIR:$PATH"
 
-# Создаём/обновляем команду 'vless' как вход в менеджер
-cat > "$BIN_DIR/vless" << VLESSEOF
+# Сохраняем скрипт в /usr/local/bin/install.sh для повторного использования
+INSTALL_SCRIPT_URL="https://raw.githubusercontent.com/qp-io/qp-io.github.io/refs/heads/main/xray/install.sh"
+if [[ ! -f "$BIN_DIR/install.sh" ]] || [[ "$(realpath "${BASH_SOURCE[0]:-$0}")" != "$BIN_DIR/install.sh" ]]; then
+    if curl -fsSL --retry 3 -m 30 -o "$BIN_DIR/install.sh.tmp" "$INSTALL_SCRIPT_URL" 2>/dev/null; then
+        mv "$BIN_DIR/install.sh.tmp" "$BIN_DIR/install.sh"
+        chmod +x "$BIN_DIR/install.sh"
+    else
+        # Если curl не удался — копируем себя (работает когда запущен как файл)
+        [[ -f "${BASH_SOURCE[0]:-}" ]] && cp "${BASH_SOURCE[0]}" "$BIN_DIR/install.sh" && chmod +x "$BIN_DIR/install.sh" || true
+    fi
+fi
+
+# Создаём команду 'vless' как ярлык менеджера
+cat > "$BIN_DIR/vless" << 'VLESSEOF'
 #!/bin/bash
-exec bash /usr/local/bin/install.sh "\$@"
+exec bash /usr/local/bin/install.sh "$@"
 VLESSEOF
 chmod +x "$BIN_DIR/vless"
 ln -sf "$BIN_DIR/vless" /usr/bin/vless 2>/dev/null || true
-
-# Копируем себя в /usr/local/bin/install.sh если запущены иначе
-if [[ "$(realpath "$0")" != "$BIN_DIR/install.sh" ]]; then
-    cp "$0" "$BIN_DIR/install.sh"
-    chmod +x "$BIN_DIR/install.sh"
-fi
 
 try_migrate_legacy
 main_menu
