@@ -1130,9 +1130,8 @@ function generate_engine_config {
   },
   "dns": {
     "servers": [
-    $([[ ${config[safenet]} == ON ]] && echo '{"type": "tcp", "server": "1.1.1.3", "tag": "dns-safe", "detour": "internet"},{"type": "tcp", "server": "1.0.0.3", "tag": "dns-safe2", "detour": "internet"}' || echo '{"type": "tcp", "server": "1.1.1.1", "tag": "dns-main", "detour": "internet"},{"type": "tcp", "server": "1.0.0.1", "tag": "dns-main2", "detour": "internet"}')
-    ],
-    "strategy": "prefer_ipv4"
+    $([[ ${config[safenet]} == ON ]] && echo '{"type": "tcp", "server": "1.1.1.3", "tag": "dns-safe"},{"type": "tcp", "server": "1.0.0.3", "tag": "dns-safe2"}' || echo '{"type": "tcp", "server": "1.1.1.1", "tag": "dns-main"},{"type": "tcp", "server": "1.0.0.1", "tag": "dns-main2"}')
+    ]
   },
   "inbounds": [
     {
