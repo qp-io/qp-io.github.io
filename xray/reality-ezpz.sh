@@ -58,6 +58,8 @@ defaults[warp_interface_ipv4]=""
 defaults[warp_interface_ipv6]=""
 defaults[core]=xray
 defaults[security]=reality
+defaults[xicmp_id]=1234
+defaults[xdns_domain]=dns.example.com
 defaults[server]=$(curl -fsSL --ipv4 https://cloudflare.com/cdn-cgi/trace | grep ip | cut -d '=' -f2)
 defaults[tgbot]=OFF
 defaults[tgbot_token]=""
@@ -88,6 +90,8 @@ config_items=(
   "tgbot"
   "tgbot_token"
   "tgbot_admins"
+  "xicmp_id"
+  "xdns_domain"
 )
 
 regex[domain]="^[a-zA-Z0-9]+([-.][a-zA-Z0-9]+)*\.[a-zA-Z]{2,}$"
@@ -104,7 +108,7 @@ regex[path]="^/.*$"
 
 function show_help {
   echo ""
-  echo "Использование: reality-ezpz.sh [-t|--transport=tcp|http|xhttp|grpc|ws|tuic|hysteria2|shadowtls|xicmp|xdns] [-d|--domain=<домен>] [--server=<сервер>] [--regenerate] [--default]
+  echo "Использование: reality-ezpz.sh [-t|--transport=tcp|http|xhttp|grpc|ws|tuic|hysteria2|shadowtls|mkcp] [-d|--domain=<домен>] [--server=<сервер>] [--regenerate] [--default]
   [-r|--restart] [--enable-safenet=true|false] [--port=<порт>] [-c|--core=xray|sing-box] [--enable-warp=true|false]
   [--warp-license=<лицензия>] [--security=reality|letsencrypt|selfsigned|notls] [-m|--menu] [--show-server-config] [--add-user=<имя>] [--lists-users]
   [--show-user=<имя>] [--delete-user=<имя>] [--backup] [--restore=<url|файл>] [--backup-password=<пароль>] [-u|--uninstall]
@@ -124,7 +128,7 @@ function show_help {
   echo "      --enable-warp <true|false> Включить/выключить Cloudflare WARP"
   echo "      --warp-license <лицензия> Добавить лицензию Cloudflare WARP+"
   echo "  -c  --core <sing-box|xray> Выбрать ядро (xray, sing-box, по умолчанию: ${defaults[core]})"
-  echo "      --security <reality|letsencrypt|selfsigned|notls> Тип шифрования (notls = без шифрования, по умолчанию: ${defaults[security]})" 
+  echo "      --security <reality|letsencrypt|selfsigned|notls|xicmp|xdns> Тип шифрования (xicmp/xdns только с transport=mkcp, по умолчанию: ${defaults[security]})" 
   echo "  -m  --menu                 Показать меню"
   echo "      --enable-tgbot <true|false> Включить Telegram бота для управления"
   echo "      --tgbot-token <токен>  Токен Telegram бота"
@@ -153,7 +157,7 @@ function parse_args {
       -t|--transport)
         args[transport]="$2"
         case ${args[transport]} in
-          tcp|http|xhttp|grpc|ws|tuic|hysteria2|shadowtls|xicmp|xdns)
+          tcp|http|xhttp|grpc|ws|tuic|hysteria2|shadowtls|mkcp)
             shift 2
             ;;
           *)
@@ -588,20 +592,12 @@ function build_config {
     echo 'Вы можете использовать транспорт "xhttp" только с ядром "xray". Смените ядро на xray.'
     exit 1
   fi
-  if [[ ${config[transport]} == 'xicmp' && ${config[core]} != 'xray' ]]; then
-    echo 'Вы можете использовать транспорт "xicmp" только с ядром "xray". Смените ядро на xray.'
+  if [[ ${config[transport]} == 'mkcp' && ${config[core]} != 'xray' ]]; then
+    echo 'Транспорт "mkcp" доступен только с ядром "xray". Смените ядро на xray.'
     exit 1
   fi
-  if [[ ${config[transport]} == 'xicmp' && ${config[security]} != 'reality' ]]; then
-    echo 'xicmp работает поверх mKCP и поддерживает только security=reality. Смените security на reality.'
-    exit 1
-  fi
-  if [[ ${config[transport]} == 'xdns' && ${config[core]} != 'xray' ]]; then
-    echo 'Вы можете использовать транспорт "xdns" только с ядром "xray". Смените ядро на xray.'
-    exit 1
-  fi
-  if [[ ${config[transport]} == 'xdns' && ${config[security]} != 'reality' ]]; then
-    echo 'xdns работает поверх mKCP и поддерживает только security=reality. Смените security на reality.'
+  if [[ (${config[security]} == 'xicmp' || ${config[security]} == 'xdns') && ${config[transport]} != 'mkcp' ]]; then
+    echo 'Security xicmp/xdns работают только с транспортом mkcp. Смените транспорт на mkcp.'
     exit 1
   fi
   if [[ ${config[transport]} == 'tuic' && ${config[security]} == 'reality' ]]; then
@@ -647,13 +643,13 @@ function build_config {
       exit 1
     fi
   fi
-  if [[ (-n "${args[security]}" || -n "${args[transport]}") && ("${args[security]}" == 'reality' || "${args[security]}" == 'notls' || "${args[transport]}" == 'shadowtls') && ("${config_file[security]}" != 'reality' && "${config_file[security]}" != 'notls' && "${config_file[transport]}" != 'shadowtls') ]]; then
+  if [[ (-n "${args[security]}" || -n "${args[transport]}") && ("${args[security]}" == 'reality' || "${args[security]}" == 'notls' || "${args[security]}" == 'xicmp' || "${args[security]}" == 'xdns' || "${args[transport]}" == 'shadowtls') && ("${config_file[security]}" != 'reality' && "${config_file[security]}" != 'notls' && "${config_file[security]}" != 'xicmp' && "${config_file[security]}" != 'xdns' && "${config_file[transport]}" != 'shadowtls') ]]; then
     config[domain]="${defaults[domain]}"
   fi
-  if [[ (-n "${args[security]}" || -n "${args[transport]}") && ("${args[security]}" != 'reality' && "${args[security]}" != 'notls' && "${args[transport]}" != 'shadowtls') && ("${config_file[security]}" == 'reality' || "${config_file[security]}" == 'notls' || "${config_file[transport]}" == 'shadowtls') ]]; then
+  if [[ (-n "${args[security]}" || -n "${args[transport]}") && ("${args[security]}" != 'reality' && "${args[security]}" != 'notls' && "${args[security]}" != 'xicmp' && "${args[security]}" != 'xdns' && "${args[transport]}" != 'shadowtls') && ("${config_file[security]}" == 'reality' || "${config_file[security]}" == 'notls' || "${config_file[security]}" == 'xicmp' || "${config_file[security]}" == 'xdns' || "${config_file[transport]}" == 'shadowtls') ]]; then
     config[domain]="${config[server]}"
   fi
-  if [[ -n "${args[server]}" && ("${config[security]}" != 'reality' && "${config[security]}" != 'notls' && "${config[transport]}" != 'shadowtls') ]]; then
+  if [[ -n "${args[server]}" && ("${config[security]}" != 'reality' && "${config[security]}" != 'notls' && "${config[security]}" != 'xicmp' && "${config[security]}" != 'xdns' && "${config[transport]}" != 'shadowtls') ]]; then
     config[domain]="${config[server]}"
   fi
   if [[ -n "${args[warp]}" && "${args[warp]}" == 'OFF' && "${config_file[warp]}" == 'ON' ]]; then
@@ -817,28 +813,34 @@ networks:
 services:
   engine:
     image: ${image[${config[core]}]}
-    $([[ (${config[security]} == 'reality' || ${config[transport]} == 'shadowtls' || ${config[security]} == 'notls') && ${config[transport]} != 'xicmp' && ${config[transport]} != 'xdns' ]] && echo "ports:" || true)
-    $([[ (${config[security]} == 'reality' || ${config[transport]} == 'shadowtls') && ${config[port]} -eq 443 && ${config[transport]} != 'xicmp' && ${config[transport]} != 'xdns' ]] && echo '- 80:8080' || true)
-    $([[ (${config[security]} == 'reality' || ${config[transport]} == 'shadowtls' || ${config[security]} == 'notls') && ${config[transport]} != 'xicmp' && ${config[transport]} != 'xdns' ]] && echo "- ${config[port]}:8443" || true)
+    # TCP-порты: reality/notls/shadowtls (кроме mkcp — у него отдельная логика)
+    $([[ (${config[security]} == 'reality' || ${config[transport]} == 'shadowtls' || ${config[security]} == 'notls') && ${config[transport]} != 'mkcp' ]] && echo "ports:" || true)
+    $([[ (${config[security]} == 'reality' || ${config[transport]} == 'shadowtls') && ${config[port]} -eq 443 && ${config[transport]} != 'mkcp' ]] && echo '- 80:8080' || true)
+    $([[ (${config[security]} == 'reality' || ${config[transport]} == 'shadowtls' || ${config[security]} == 'notls') && ${config[transport]} != 'mkcp' ]] && echo "- ${config[port]}:8443" || true)
+    # UDP-порты: tuic/hysteria2
     $([[ ${config[transport]} == 'tuic' || ${config[transport]} == 'hysteria2' ]] && echo "ports:" || true)
     $([[ ${config[transport]} == 'tuic' || ${config[transport]} == 'hysteria2' ]] && echo "- ${config[port]}:8443/udp" || true)
-    $([[ ${config[transport]} == 'xdns' ]] && echo "ports:" || true)
-    $([[ ${config[transport]} == 'xdns' ]] && echo "- ${config[port]}:8443/udp" || true)
-    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[transport]} != 'shadowtls' && ${config[transport]} != 'hysteria2' && ${config[transport]} != 'tuic' && ${config[transport]} != 'xicmp' && ${config[transport]} != 'xdns' ]] && echo "expose:" || true)
-    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[transport]} != 'shadowtls' && ${config[transport]} != 'hysteria2' && ${config[transport]} != 'tuic' && ${config[transport]} != 'xicmp' && ${config[transport]} != 'xdns' ]] && echo "- 8443" || true)
-    $([[ ${config[transport]} == 'xicmp' ]] && echo "network_mode: host" || true)
-    $([[ ${config[transport]} == 'xicmp' ]] && echo "cap_add:" || true)
-    $([[ ${config[transport]} == 'xicmp' ]] && echo "- NET_RAW" || true)
+    # mkcp+xdns: UDP порт; mkcp+xicmp: raw ICMP (нет порта)
+    $([[ ${config[transport]} == 'mkcp' && ${config[security]} == 'xdns' ]] && echo "ports:" || true)
+    $([[ ${config[transport]} == 'mkcp' && ${config[security]} == 'xdns' ]] && echo "- ${config[port]}:8443/udp" || true)
+    # expose для haproxy (не mkcp, не UDP transports)
+    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[security]} != 'xicmp' && ${config[security]} != 'xdns' && ${config[transport]} != 'shadowtls' && ${config[transport]} != 'hysteria2' && ${config[transport]} != 'tuic' && ${config[transport]} != 'mkcp' ]] && echo "expose:" || true)
+    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[security]} != 'xicmp' && ${config[security]} != 'xdns' && ${config[transport]} != 'shadowtls' && ${config[transport]} != 'hysteria2' && ${config[transport]} != 'tuic' && ${config[transport]} != 'mkcp' ]] && echo "- 8443" || true)
+    # xicmp: raw socket требует network_mode=host + cap_add=NET_RAW
+    $([[ ${config[transport]} == 'mkcp' && ${config[security]} == 'xicmp' ]] && echo "network_mode: host" || true)
+    $([[ ${config[transport]} == 'mkcp' && ${config[security]} == 'xicmp' ]] && echo "cap_add:" || true)
+    $([[ ${config[transport]} == 'mkcp' && ${config[security]} == 'xicmp' ]] && echo "- NET_RAW" || true)
     restart: always
     environment:
       TZ: Etc/UTC
     volumes:
     - ./${path[engine]#${config_path}/}:/etc/${config[core]}/config.json
-    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' ]] && { [[ ${config[transport]} == 'http' ]] || [[ ${config[transport]} == 'tcp' ]] || [[ ${config[transport]} == 'tuic' ]] || [[ ${config[transport]} == 'hysteria2' ]]; } && echo "- ./${path[server_crt]#${config_path}/}:/etc/${config[core]}/server.crt" || true)
-    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' ]] && { [[ ${config[transport]} == 'http' ]] || [[ ${config[transport]} == 'tcp' ]] || [[ ${config[transport]} == 'tuic' ]] || [[ ${config[transport]} == 'hysteria2' ]]; } && echo "- ./${path[server_key]#${config_path}/}:/etc/${config[core]}/server.key" || true)
-    $([[ ${config[transport]} != 'xicmp' ]] && echo "networks:" || true)
-    $([[ ${config[transport]} != 'xicmp' ]] && echo "- reality" || true)
-$(if [[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[transport]} != 'shadowtls' && ${config[transport]} != 'hysteria2' && ${config[transport]} != 'tuic' && ${config[transport]} != 'xicmp' && ${config[transport]} != 'xdns' ]]; then
+    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[security]} != 'xicmp' && ${config[security]} != 'xdns' ]] && { [[ ${config[transport]} == 'http' ]] || [[ ${config[transport]} == 'tcp' ]] || [[ ${config[transport]} == 'tuic' ]] || [[ ${config[transport]} == 'hysteria2' ]]; } && echo "- ./${path[server_crt]#${config_path}/}:/etc/${config[core]}/server.crt" || true)
+    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[security]} != 'xicmp' && ${config[security]} != 'xdns' ]] && { [[ ${config[transport]} == 'http' ]] || [[ ${config[transport]} == 'tcp' ]] || [[ ${config[transport]} == 'tuic' ]] || [[ ${config[transport]} == 'hysteria2' ]]; } && echo "- ./${path[server_key]#${config_path}/}:/etc/${config[core]}/server.key" || true)
+    # xicmp несовместим с networks: секцией (network_mode: host)
+    $([[ ! (${config[transport]} == 'mkcp' && ${config[security]} == 'xicmp') ]] && echo "networks:" || true)
+    $([[ ! (${config[transport]} == 'mkcp' && ${config[security]} == 'xicmp') ]] && echo "- reality" || true)
+$(if [[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[security]} != 'xicmp' && ${config[security]} != 'xdns' && ${config[transport]} != 'shadowtls' && ${config[transport]} != 'hysteria2' && ${config[transport]} != 'tuic' && ${config[transport]} != 'mkcp' ]]; then
 echo "
   nginx:
     image: ${image[nginx]}
@@ -861,7 +863,7 @@ echo "
     networks:
     - reality"
 fi)
-$(if [[ ${config[security]} == 'letsencrypt' && ${config[transport]} != 'shadowtls' && ${config[transport]} != 'xicmp' && ${config[transport]} != 'xdns' ]]; then
+$(if [[ ${config[security]} == 'letsencrypt' && ${config[transport]} != 'shadowtls' && ${config[transport]} != 'mkcp' ]]; then
 echo "
   certbot:
     build:
@@ -1369,7 +1371,7 @@ EOF
     },
     {
       "listen": "0.0.0.0",
-      "port": $([[ ${config[transport]} == 'xicmp' ]] && echo 0 || echo 8443),
+      "port": $([[ ${config[transport]} == 'mkcp' && ${config[security]} == 'xicmp' ]] && echo 0 || echo 8443),
       "protocol": "vless",
       "tag": "inbound",
       "settings": {
@@ -1386,13 +1388,14 @@ EOF
            echo '"path": "/'"${config[service_path]}"'"'
            echo '},'
         fi)
-        $(if [[ ${config[transport]} == 'xicmp' ]]; then
-           echo '"kcpSettings": {"mtu": 1350, "tti": 50, "uplinkCapacity": 5, "downlinkCapacity": 20, "congestion": false, "readBufferSize": 2, "writeBufferSize": 2, "header": {"type": "none"}},'
+        $(if [[ ${config[transport]} == 'mkcp' ]]; then
+           if [[ ${config[security]} == 'xdns' ]]; then
+             echo '"kcpSettings": {"mtu": 900, "tti": 50, "uplinkCapacity": 2, "downlinkCapacity": 10, "congestion": false, "readBufferSize": 2, "writeBufferSize": 2},'
+           else
+             echo '"kcpSettings": {"mtu": 1350, "tti": 50, "uplinkCapacity": 5, "downlinkCapacity": 20, "congestion": false, "readBufferSize": 2, "writeBufferSize": 2},'
+           fi
         fi)
-        $(if [[ ${config[transport]} == 'xdns' ]]; then
-           echo '"kcpSettings": {"mtu": 900, "tti": 50, "uplinkCapacity": 2, "downlinkCapacity": 10, "congestion": false, "readBufferSize": 2, "writeBufferSize": 2, "header": {"type": "none"}},'
-        fi)
-        "network": "$([[ ${config[transport]} == 'xicmp' || ${config[transport]} == 'xdns' ]] && echo 'kcp' || echo "${config[transport]}")",
+        "network": "$([[ ${config[transport]} == 'mkcp' ]] && echo 'kcp' || echo "${config[transport]}")",
         $(if [[ ${config[security]} == 'reality' ]]; then
           echo "${reality_object}"
         elif [[ ${config[security]} == 'notls' ]]; then
@@ -1402,10 +1405,10 @@ EOF
         else
           echo '"security":"none"'
         fi)
-        $(if [[ ${config[transport]} == 'xicmp' ]]; then
+        $(if [[ ${config[transport]} == 'mkcp' && ${config[security]} == 'xicmp' ]]; then
            echo ',"finalmask": {"udp": [{"type": "xicmp", "settings": {"id": '"${config[xicmp_id]:-1234}"'}}]}'
         fi)
-        $(if [[ ${config[transport]} == 'xdns' ]]; then
+        $(if [[ ${config[transport]} == 'mkcp' && ${config[security]} == 'xdns' ]]; then
            echo ',"finalmask": {"udp": [{"type": "xdns", "settings": {"domain": "'"${config[xdns_domain]:-dns.example.com}"'"}}]}'
         fi)
       },
@@ -1509,7 +1512,7 @@ EOF
 function generate_config {
   generate_docker_compose
   generate_engine_config
-  if [[ ${config[security]} != "reality" && ${config[security]} != "notls" && ${config[transport]} != 'shadowtls' && ${config[transport]} != 'hysteria2' && ${config[transport]} != 'tuic' ]]; then
+  if [[ ${config[security]} != "reality" && ${config[security]} != "notls" && ${config[security]} != "xicmp" && ${config[security]} != "xdns" && ${config[transport]} != 'shadowtls' && ${config[transport]} != 'hysteria2' && ${config[transport]} != 'tuic' ]]; then
     mkdir -p "${config_path}/certificate"
     generate_haproxy_config
     if [[ ! -r "${path[server_pem]}" || ! -r "${path[server_crt]}" || ! -r "${path[server_key]}" ]]; then
@@ -1517,7 +1520,7 @@ function generate_config {
     fi
   fi
   # Для hysteria2/tuic: сертификат нужен напрямую в engine (без haproxy)
-  if [[ ${config[security]} != "reality" && ${config[security]} != "notls" && ( ${config[transport]} == 'hysteria2' || ${config[transport]} == 'tuic' ) ]]; then
+  if [[ ${config[security]} != "reality" && ${config[security]} != "notls" && ${config[security]} != "xicmp" && ${config[security]} != "xdns" && ( ${config[transport]} == 'hysteria2' || ${config[transport]} == 'tuic' ) ]]; then
     mkdir -p "${config_path}/certificate"
     if [[ ! -r "${path[server_crt]}" || ! -r "${path[server_key]}" ]]; then
       generate_selfsigned_certificate
@@ -1569,15 +1572,15 @@ function print_client_configuration {
     client_config="vless://"
     client_config="${client_config}${users[${username}]}"
     client_config="${client_config}@${config[server]}"
-    # xicmp использует raw socket — порт в ссылке = 0
-    client_config="${client_config}:$([[ ${config[transport]} == 'xicmp' ]] && echo 0 || echo "${config[port]}")"
-    client_config="${client_config}?security=$([[ ${config[security]} == 'reality' ]] && echo reality || { [[ ${config[security]} == 'notls' ]] && echo none || echo tls; })"
+    # mkcp+xicmp: port=0 (raw socket, не UDP)
+    client_config="${client_config}:$([[ ${config[transport]} == 'mkcp' && ${config[security]} == 'xicmp' ]] && echo 0 || echo "${config[port]}")"
+    client_config="${client_config}?security=$([[ ${config[security]} == 'reality' ]] && echo reality || { [[ ${config[security]} == 'notls' || ${config[security]} == 'xicmp' || ${config[security]} == 'xdns' ]] && echo none || echo tls; })"
     client_config="${client_config}&encryption=none"
     client_config="${client_config}&alpn=$([[ ${config[transport]} == 'ws' ]] && echo 'http/1.1' || echo 'h2,http/1.1')"
     client_config="${client_config}&headerType=none"
     client_config="${client_config}&fp=chrome"
-    # xicmp/xdns передаются как type=kcp
-    client_config="${client_config}&type=$([[ ${config[transport]} == 'xicmp' || ${config[transport]} == 'xdns' ]] && echo 'kcp' || echo "${config[transport]}")"
+    # mkcp передаётся как type=kcp; финальная маска через fm=
+    client_config="${client_config}&type=$([[ ${config[transport]} == 'mkcp' ]] && echo 'kcp' || echo "${config[transport]}")"
     client_config="${client_config}&flow=$([[ ${config[transport]} == 'tcp' ]] && echo 'xtls-rprx-vision' || true)"
     client_config="${client_config}&sni=${config[domain]%%:*}"
     client_config="${client_config}$([[ ${config[transport]} == 'ws' || ${config[transport]} == 'http' ]] && echo "&host=${config[server]}" || true)"
@@ -1589,9 +1592,9 @@ function print_client_configuration {
     client_config="${client_config}$([[ ${config[transport]} == 'xhttp' ]] && echo '&mode=auto' || true)"
     client_config="${client_config}$([[ ${config[transport]} == 'grpc' ]] && echo '&mode=gun' || true)"
     client_config="${client_config}$([[ ${config[transport]} == 'grpc' ]] && echo "&serviceName=${config[service_path]}" || true)"
-    # finalmask параметры для xicmp/xdns (поддерживается в v2rayN/NekoBox)
-    client_config="${client_config}$([[ ${config[transport]} == 'xicmp' ]] && echo "&finalmask=xicmp&icmpId=${config[xicmp_id]:-1234}" || true)"
-    client_config="${client_config}$([[ ${config[transport]} == 'xdns' ]] && echo "&finalmask=xdns&xdnsDomain=${config[xdns_domain]:-dns.example.com}" || true)"
+    # finalmask для mkcp (стандарт v26.2.6: fm= параметр в ссылке)
+    client_config="${client_config}$([[ ${config[transport]} == 'mkcp' && ${config[security]} == 'xicmp' ]] && echo "&fm=xicmp&icmpId=${config[xicmp_id]:-1234}" || true)"
+    client_config="${client_config}$([[ ${config[transport]} == 'mkcp' && ${config[security]} == 'xdns' ]] && echo "&fm=xdns&xdnsDomain=${config[xdns_domain]:-dns.example.com}" || true)"
     client_config="${client_config}#${username}"
   fi
   echo ""
@@ -1830,13 +1833,12 @@ Flow: $([[ ${config[transport]} == 'tcp' ]] && echo 'xtls-rprx-vision' || true)
 $([[ ${config[transport]} == 'ws' || ${config[transport]} == 'http' ]] && echo "Заголовок Host: ${config[server]}" || true)
 $([[ ${config[transport]} == 'ws' || ${config[transport]} == 'http' || ${config[transport]} == 'xhttp' ]] && echo "Путь: /${config[service_path]}" || true)
 $([[ ${config[transport]} == 'xhttp' ]] && echo "Режим: auto" || true)
-$([[ ${config[transport]} == 'xicmp' ]] && echo "ICMP ID: ${config[xicmp_id]:-1234}" || true)
-$([[ ${config[transport]} == 'xicmp' ]] && echo "⚠ На сервере выполните: sysctl -w net.ipv4.icmp_echo_ignore_all=1" || true)
-$([[ ${config[transport]} == 'xdns' ]] && echo "DNS Domain: ${config[xdns_domain]:-dns.example.com}" || true)
-$([[ ${config[transport]} == 'xdns' ]] && echo "⚠ В клиенте установите MTU kcp = 130 (сервер: 900)" || true)
+$([[ ${config[transport]} == 'mkcp' && ${config[security]} == 'xicmp' ]] && echo "ICMP ID: ${config[xicmp_id]:-1234}" || true)
+$([[ ${config[transport]} == 'mkcp' && ${config[security]} == 'xdns' ]] && echo "DNS Domain: ${config[xdns_domain]:-dns.example.com}" || true)
+$([[ ${config[transport]} == 'mkcp' && ${config[security]} == 'xdns' ]] && echo "⚠ В клиенте установите MTU kcp = 130 (сервер использует 900)" || true)
 $([[ ${config[transport]} == 'grpc' ]] && echo 'Режим gRPC: gun' || true)
 $([[ ${config[transport]} == 'grpc' ]] && echo 'gRPC serviceName: '"${config[service_path]}" || true)
-TLS: $([[ ${config[security]} == 'reality' ]] && echo 'reality' || { [[ ${config[security]} == 'notls' ]] && echo 'none' || echo 'tls'; })
+TLS: $([[ ${config[security]} == 'reality' ]] && echo 'reality' || { [[ ${config[security]} == 'notls' ]] && echo 'none' || { [[ ${config[security]} == 'xicmp' ]] && echo 'xicmp (finalmask)' || { [[ ${config[security]} == 'xdns' ]] && echo 'xdns (finalmask)' || echo 'tls'; }; }; })
 SNI: ${config[domain]%%:*}
 ALPN: $([[ ${config[transport]} == 'ws' ]] && echo 'http/1.1' || echo 'h2,http/1.1')
 Отпечаток: chrome
@@ -2094,21 +2096,21 @@ function config_server_menu {
   done
 }
 
+
 function config_transport_menu {
   local transport
   while true; do
     transport=$(whiptail --clear --backtitle "$BACKTITLE" --title "Транспорт" \
       --radiolist --noitem "Выберите транспортный протокол:" $HEIGHT $WIDTH $CHOICE_HEIGHT \
-      "tcp" "$([[ "${config[transport]}" == 'tcp' ]] && echo 'on' || echo 'off')" \
-      "http" "$([[ "${config[transport]}" == 'http' ]] && echo 'on' || echo 'off')" \
-      "xhttp" "$([[ "${config[transport]}" == 'xhttp' ]] && echo 'on' || echo 'off')" \
-      "grpc" "$([[ "${config[transport]}" == 'grpc' ]] && echo 'on' || echo 'off')" \
-      "ws" "$([[ "${config[transport]}" == 'ws' ]] && echo 'on' || echo 'off')" \
-      "tuic" "$([[ "${config[transport]}" == 'tuic' ]] && echo 'on' || echo 'off')" \
+      "tcp"       "$([[ "${config[transport]}" == 'tcp'       ]] && echo 'on' || echo 'off')" \
+      "http"      "$([[ "${config[transport]}" == 'http'      ]] && echo 'on' || echo 'off')" \
+      "xhttp"     "$([[ "${config[transport]}" == 'xhttp'     ]] && echo 'on' || echo 'off')" \
+      "grpc"      "$([[ "${config[transport]}" == 'grpc'      ]] && echo 'on' || echo 'off')" \
+      "ws"        "$([[ "${config[transport]}" == 'ws'        ]] && echo 'on' || echo 'off')" \
+      "tuic"      "$([[ "${config[transport]}" == 'tuic'      ]] && echo 'on' || echo 'off')" \
       "hysteria2" "$([[ "${config[transport]}" == 'hysteria2' ]] && echo 'on' || echo 'off')" \
       "shadowtls" "$([[ "${config[transport]}" == 'shadowtls' ]] && echo 'on' || echo 'off')" \
-      "xicmp" "$([[ "${config[transport]}" == 'xicmp' ]] && echo 'on' || echo 'off')" \
-      "xdns" "$([[ "${config[transport]}" == 'xdns' ]] && echo 'on' || echo 'off')" \
+      "mkcp"      "$([[ "${config[transport]}" == 'mkcp'      ]] && echo 'on' || echo 'off')" \
       3>&1 1>&2 2>&3)
     if [[ $? -ne 0 ]]; then
       break
@@ -2121,27 +2123,9 @@ function config_transport_menu {
       message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "xhttp" с ядром "sing-box". Используйте ядро "xray".'
       continue
     fi
-    if [[ ${transport} == 'xicmp' && ${config[core]} != 'xray' ]]; then
-      message_box 'Ошибка конфигурации' 'xicmp работает только с ядром "xray".'
+    if [[ ${transport} == 'mkcp' && ${config[core]} != 'xray' ]]; then
+      message_box 'Ошибка конфигурации' 'Транспорт "mkcp" доступен только с ядром "xray".'
       continue
-    fi
-    if [[ ${transport} == 'xicmp' && ${config[security]} != 'reality' ]]; then
-      message_box 'Ошибка конфигурации' 'xicmp работает поверх mKCP и требует security=reality.'
-      continue
-    fi
-    if [[ ${transport} == 'xicmp' ]]; then
-      message_box 'Важно: xicmp' 'Транспорт xicmp маскирует трафик под ICMP Echo.\n\nТребования:\n- Только ядро xray + security=reality\n- Docker: network_mode=host + cap_add=NET_RAW\n\nПосле применения выполните на сервере:\n  sysctl -w net.ipv4.icmp_echo_ignore_all=1\n  echo "net.ipv4.icmp_echo_ignore_all=1" >> /etc/sysctl.conf\n\nБез этого ОС будет отвечать на ICMP сама, не давая xray перехватить пакеты.'
-    fi
-    if [[ ${transport} == 'xdns' && ${config[core]} != 'xray' ]]; then
-      message_box 'Ошибка конфигурации' 'xdns работает только с ядром "xray".'
-      continue
-    fi
-    if [[ ${transport} == 'xdns' && ${config[security]} != 'reality' ]]; then
-      message_box 'Ошибка конфигурации' 'xdns работает поверх mKCP и требует security=reality.'
-      continue
-    fi
-    if [[ ${transport} == 'xdns' ]]; then
-      message_box 'Важно: xdns' 'Транспорт xdns маскирует трафик под DNS-запросы.\n\nТребования:\n- Только ядро xray + security=reality\n- Низкая пропускная способность (~130 байт payload)\n\nВ клиенте (v2rayN/NekoBox) обязательно установите:\n  MTU (kcp) = 130\n\nБез этого соединение не будет работать корректно.'
     fi
     if [[ ${transport} == 'tuic' && ${config[security]} == 'reality' ]]; then
       message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "tuic" с сертификатом "reality". Используйте другой транспорт или смените сертификат на "letsencrypt" или "selfsigned"'
@@ -2169,6 +2153,7 @@ function config_transport_menu {
   done
 }
 
+
 function config_sni_domain_menu {
   local sni_domain
   while true; do
@@ -2192,15 +2177,32 @@ function config_security_menu {
   local security
   local free_80=true
   while true; do
-    security=$(whiptail --clear --backtitle "$BACKTITLE" --title "Тип безопасности" \
-      --radiolist --noitem "Выберите тип безопасности:" $HEIGHT $WIDTH $CHOICE_HEIGHT \
-      "reality" "$([[ "${config[security]}" == 'reality' ]] && echo 'on' || echo 'off')" \
-      "letsencrypt" "$([[ "${config[security]}" == 'letsencrypt' ]] && echo 'on' || echo 'off')" \
-      "selfsigned" "$([[ "${config[security]}" == 'selfsigned' ]] && echo 'on' || echo 'off')" \
-      "notls" "$([[ "${config[security]}" == 'notls' ]] && echo 'on' || echo 'off')" \
-      3>&1 1>&2 2>&3)
+    # xicmp/xdns доступны только с transport=mkcp
+    if [[ ${config[transport]} == 'mkcp' ]]; then
+      security=$(whiptail --clear --backtitle "$BACKTITLE" --title "Тип безопасности" \
+        --radiolist --noitem "Выберите тип безопасности:" $HEIGHT $WIDTH $CHOICE_HEIGHT \
+        "reality"     "$([[ "${config[security]}" == 'reality'     ]] && echo 'on' || echo 'off')" \
+        "letsencrypt" "$([[ "${config[security]}" == 'letsencrypt' ]] && echo 'on' || echo 'off')" \
+        "selfsigned"  "$([[ "${config[security]}" == 'selfsigned'  ]] && echo 'on' || echo 'off')" \
+        "notls"       "$([[ "${config[security]}" == 'notls'       ]] && echo 'on' || echo 'off')" \
+        "xicmp"       "$([[ "${config[security]}" == 'xicmp'       ]] && echo 'on' || echo 'off')" \
+        "xdns"        "$([[ "${config[security]}" == 'xdns'        ]] && echo 'on' || echo 'off')" \
+        3>&1 1>&2 2>&3)
+    else
+      security=$(whiptail --clear --backtitle "$BACKTITLE" --title "Тип безопасности" \
+        --radiolist --noitem "Выберите тип безопасности:" $HEIGHT $WIDTH $CHOICE_HEIGHT \
+        "reality"     "$([[ "${config[security]}" == 'reality'     ]] && echo 'on' || echo 'off')" \
+        "letsencrypt" "$([[ "${config[security]}" == 'letsencrypt' ]] && echo 'on' || echo 'off')" \
+        "selfsigned"  "$([[ "${config[security]}" == 'selfsigned'  ]] && echo 'on' || echo 'off')" \
+        "notls"       "$([[ "${config[security]}" == 'notls'       ]] && echo 'on' || echo 'off')" \
+        3>&1 1>&2 2>&3)
+    fi
     if [[ $? -ne 0 ]]; then
       break
+    fi
+    if [[ (${security} == 'xicmp' || ${security} == 'xdns') && ${config[transport]} != 'mkcp' ]]; then
+      message_box 'Ошибка конфигурации' '"xicmp" и "xdns" работают только с транспортом "mkcp".'
+      continue
     fi
     if [[ ! ${config[server]} =~ ${regex[domain]} && ${security} == 'letsencrypt' ]]; then
       message_box 'Ошибка конфигурации' 'Вы должны назначить валидный домен серверу, если хотите использовать "letsencrypt" в качестве типа безопасности.'
@@ -2233,10 +2235,10 @@ function config_security_menu {
         continue
       fi
     fi
-    if [[ ${security} != 'reality' && ${security} != 'notls' && ${config[transport]} != 'shadowtls' ]]; then
+    if [[ ${security} != 'reality' && ${security} != 'notls' && ${security} != 'xicmp' && ${security} != 'xdns' && ${config[transport]} != 'shadowtls' ]]; then
       config[domain]="${config[server]}"
     fi
-    if [[ ${security} == 'reality' || ${security} == 'notls' || ${config[transport]} == 'shadowtls' ]]; then
+    if [[ ${security} == 'reality' || ${security} == 'notls' || ${security} == 'xicmp' || ${security} == 'xdns' || ${config[transport]} == 'shadowtls' ]]; then
       config[domain]="${defaults[domain]}"
     fi
     config[security]="${security}"
@@ -2519,6 +2521,14 @@ function restore_backup_menu {
 function restart_docker_compose {
   ${docker_cmd} --project-directory ${config_path} -p ${compose_project} down --remove-orphans --timeout 2 || true
   ${docker_cmd} --project-directory ${config_path} -p ${compose_project} up --build -d --remove-orphans --build
+  # xicmp: отключаем ответы ядра на ICMP echo чтобы xray перехватывал пакеты
+  if [[ ${config[transport]} == 'mkcp' && ${config[security]} == 'xicmp' ]]; then
+    echo "Применяю sysctl для xicmp (отключение ответов ядра на ICMP echo)..."
+    sysctl -w net.ipv4.icmp_echo_ignore_all=1 || true
+    sysctl -w net.ipv6.icmp.echo_ignore_all=1 || true
+    grep -qxF 'net.ipv4.icmp_echo_ignore_all=1' /etc/sysctl.conf || echo 'net.ipv4.icmp_echo_ignore_all=1' >> /etc/sysctl.conf
+    grep -qxF 'net.ipv6.icmp.echo_ignore_all=1' /etc/sysctl.conf || echo 'net.ipv6.icmp.echo_ignore_all=1' >> /etc/sysctl.conf
+  fi
 }
 
 function restart_tgbot_compose {

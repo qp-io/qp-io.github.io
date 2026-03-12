@@ -190,10 +190,8 @@ async def send_settings_menu(bot, chat_id, text=None):
         callback_data="warp_off" if warp == "ON" else "sub!warp"
     )
     kb = [
-        [
-            InlineKeyboardButton("Core", callback_data="sub!core"),
-            InlineKeyboardButton("Transport", callback_data="sub!transport")
-        ],
+        [InlineKeyboardButton("Core", callback_data="sub!core"),
+         InlineKeyboardButton("Transport", callback_data="sub!transport")],
         [
             InlineKeyboardButton("Security", callback_data="sub!security"),
             warp_btn
@@ -274,14 +272,9 @@ async def apply_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, para
         c = read_config()
         core = c.get("core", "xray")
         security = c.get("security", "reality")
-        xray_only = {'xhttp', 'xicmp', 'xdns'}
-        mkcp_only = {'xicmp', 'xdns'}
+        xray_only = {'xhttp', 'mkcp'}
         if val in xray_only and core != 'xray':
             await context.bot.send_message(chat_id, f"⚠️ Транспорт <b>{val}</b> работает только с ядром <b>xray</b>. Сначала смените ядро.", parse_mode="HTML")
-            await send_settings_menu(context.bot, chat_id)
-            return
-        if val in mkcp_only and security != 'reality':
-            await context.bot.send_message(chat_id, f"⚠️ Транспорт <b>{val}</b> работает поверх mKCP и требует <b>security=reality</b>. Сначала смените security.", parse_mode="HTML")
             await send_settings_menu(context.bot, chat_id)
             return
     if param == "warp_license":
@@ -411,15 +404,19 @@ async def cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton("Sing-Box", callback_data="set!core!sing-box")
             ]]
         elif arg == "transport":
-            opts = ['tcp', 'http', 'grpc', 'ws', 'xhttp', 'tuic', 'hysteria2', 'shadowtls', 'xicmp', 'xdns']
+            opts = ['tcp', 'http', 'grpc', 'ws', 'xhttp', 'tuic', 'hysteria2', 'shadowtls', 'mkcp']
             kb = [
                 [InlineKeyboardButton(o, callback_data=f"set!transport!{o}") for o in opts[i:i+3]]
                 for i in range(0, len(opts), 3)
             ]
         elif arg == "security":
+            c2 = read_config()
+            sec_opts = ['reality', 'letsencrypt', 'selfsigned', 'notls']
+            if c2.get('transport') == 'mkcp':
+                sec_opts += ['xicmp', 'xdns']
             kb = [
                 [InlineKeyboardButton(o, callback_data=f"set!security!{o}")]
-                for o in ['reality', 'letsencrypt', 'selfsigned', 'notls']
+                for o in sec_opts
             ]
         elif arg == "warp":
             kb = [
