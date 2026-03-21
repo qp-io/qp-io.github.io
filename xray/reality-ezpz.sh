@@ -1539,18 +1539,24 @@ function print_client_configuration {
     client_config="${client_config}:${config[port]}"
     client_config="${client_config}?security=$([[ ${config[security]} == 'reality' ]] && echo reality || { [[ ${config[security]} == 'notls' ]] && echo none || echo tls; })"
     client_config="${client_config}&encryption=none"
-    client_config="${client_config}&alpn=$([[ ${config[transport]} == 'ws' ]] && echo 'http/1.1' || echo 'h2,http/1.1')"
     client_config="${client_config}&headerType=none"
-    client_config="${client_config}&fp=chrome"
     client_config="${client_config}&type=${config[transport]}"
-    client_config="${client_config}&flow=$([[ ${config[transport]} == 'tcp' ]] && echo 'xtls-rprx-vision' || true)"
-    client_config="${client_config}&sni=${config[domain]%%:*}"
-    client_config="${client_config}$([[ ${config[transport]} == 'ws' || ${config[transport]} == 'http' ]] && echo "&host=${config[server]}" || true)"
+    # TLS-специфичные параметры — только при наличии TLS-слоя
+    if [[ ${config[security]} != 'notls' ]]; then
+      client_config="${client_config}&alpn=$([[ ${config[transport]} == 'ws' ]] && echo 'http/1.1' || echo 'h2,http/1.1')"
+      client_config="${client_config}&fp=chrome"
+      client_config="${client_config}&sni=${config[domain]%%:*}"
+      # flow только для tcp+tls/reality
+      if [[ ${config[transport]} == 'tcp' ]]; then
+        client_config="${client_config}&flow=xtls-rprx-vision"
+      fi
+    fi
     client_config="${client_config}$([[ ${config[security]} == 'reality' ]] && echo "&pbk=${config[public_key]}" || true)"
     client_config="${client_config}$([[ ${config[security]} == 'reality' ]] && echo "&sid=${config[short_id]}" || true)"
     client_config="${client_config}$([[ ${config[transport]} == 'ws' || ${config[transport]} == 'http' || ${config[transport]} == 'xhttp' ]] && echo "&path=%2F${config[service_path]}" || true)"
     client_config="${client_config}$([[ ${config[transport]} == 'xhttp' && -n ${config[host_header]} ]] && echo "&host=${config[host_header]}" || true)"
-    client_config="${client_config}$([[ ${config[transport]} == 'ws' && -n ${config[host_header]} ]] && echo "&host=${config[host_header]}" || true)"
+    client_config="${client_config}$([[ ${config[transport]} == 'ws' ]] && echo "&host=${config[host_header]:-${config[server]}}" || true)"
+    client_config="${client_config}$([[ ${config[transport]} == 'http' ]] && echo "&host=${config[host_header]:-${config[server]}}" || true)"
     client_config="${client_config}$([[ ${config[transport]} == 'xhttp' ]] && echo '&mode=auto' || true)"
     client_config="${client_config}$([[ ${config[transport]} == 'grpc' ]] && echo '&mode=gun' || true)"
     client_config="${client_config}$([[ ${config[transport]} == 'grpc' ]] && echo "&serviceName=${config[service_path]}" || true)"
