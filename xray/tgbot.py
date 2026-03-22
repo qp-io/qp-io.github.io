@@ -189,11 +189,10 @@ async def send_settings_menu(bot, chat_id, text=None):
     c = read_config()
     warp = c.get("warp", "OFF")
     warp_license = c.get("warp_license", "")
-    warp_has_keys = bool(c.get("warp_private_key", ""))
     if warp_license:
-        warp_label = "WARP+  ✅" if warp == "ON" else "WARP+  ⬜"
+        warp_btn_label = "WARP+  ✅" if warp == "ON" else "WARP+  ⬜"
     else:
-        warp_label = "WARP  ✅" if warp == "ON" else "WARP  ⬜"
+        warp_btn_label = "WARP  ✅" if warp == "ON" else "WARP  ⬜"
     if not text:
         text = (
             "⚙️ <b>Настройки</b>\n"
@@ -206,27 +205,6 @@ async def send_settings_menu(bot, chat_id, text=None):
             f"Path: <code>/{c.get('service_path','')}</code>\n"
             f"WARP: <b>{warp}</b>" + (f" (WARP+)" if warp_license else "")
         )
-    toggle_btn = InlineKeyboardButton(
-        "🔴 Выкл" if warp == "ON" else "🟢 Вкл",
-        callback_data="warp_off" if warp == "ON" else "warp_on"
-    )
-    # Строка кнопок WARP:
-    # - Если WARP выключен И ключи уже есть: показываем «Вкл» + «🔄 Новые ключи»
-    # - Если WARP выключен И ключей нет: только «Вкл» (сгенерирует сам)
-    # - Если WARP включён: только «Выкл»
-    if warp == "OFF" and warp_has_keys:
-        warp_row = [
-            InlineKeyboardButton("🆓 WARP", callback_data="warp_set_free"),
-            InlineKeyboardButton("⭐ WARP+", callback_data="warp_set_plus"),
-            toggle_btn,
-            InlineKeyboardButton("🔄 Новые ключи", callback_data="warp_regen"),
-        ]
-    else:
-        warp_row = [
-            InlineKeyboardButton("🆓 WARP", callback_data="warp_set_free"),
-            InlineKeyboardButton("⭐ WARP+", callback_data="warp_set_plus"),
-            toggle_btn,
-        ]
     kb = [
         [
             InlineKeyboardButton("Core", callback_data="sub!core"),
@@ -235,7 +213,9 @@ async def send_settings_menu(bot, chat_id, text=None):
         [
             InlineKeyboardButton("Security", callback_data="sub!security"),
         ],
-        warp_row,
+        [
+            InlineKeyboardButton(warp_btn_label, callback_data="warp_menu"),
+        ],
         [
             InlineKeyboardButton("Server", callback_data="ask!server"),
             InlineKeyboardButton("Port", callback_data="ask!port")
@@ -464,6 +444,35 @@ async def cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await ask_input(update, context, arg)
     elif cmd == "set":
         await apply_setting(update, context, arg, arg2)
+    elif cmd == "warp_menu":
+        # Подменю WARP: зависит от текущего состояния
+        c = read_config()
+        warp = c.get("warp", "OFF")
+        warp_license = c.get("warp_license", "")
+        warp_has_keys = bool(c.get("warp_private_key", ""))
+        if warp == "ON":
+            # Включён → показываем только «Выкл» и «WARP+ лицензия»
+            kb = [
+                [InlineKeyboardButton("🔴 Выключить WARP", callback_data="warp_off")],
+                [InlineKeyboardButton("⭐ WARP+ лицензия", callback_data="warp_set_plus")],
+                [InlineKeyboardButton("🔙 Назад", callback_data="m_settings")],
+            ]
+            status_text = "✅ WARP включён" + (" (WARP+)" if warp_license else "")
+        else:
+            # Выключен → «Вкл» всегда есть, «Перегенерировать» только если ключи есть
+            rows = [[InlineKeyboardButton("🟢 Включить WARP", callback_data="warp_on")]]
+            if warp_has_keys:
+                rows.append([InlineKeyboardButton("🔄 Перегенерировать ключи", callback_data="warp_regen")])
+            rows.append([InlineKeyboardButton("⭐ WARP+ лицензия", callback_data="warp_set_plus")])
+            rows.append([InlineKeyboardButton("🔙 Назад", callback_data="m_settings")])
+            kb = rows
+            status_text = "⬜ WARP выключен" + (" (есть ключи)" if warp_has_keys else " (ключей нет — будут созданы)")
+        await context.bot.send_message(
+            chat_id,
+            f"<b>WARP</b>\n{status_text}",
+            reply_markup=InlineKeyboardMarkup(kb),
+            parse_mode="HTML"
+        )
     elif cmd == "warp_off":
         await context.bot.send_message(chat_id, "⏳ Отключаю WARP...")
         rc, out = run_script('--enable-warp=false')
@@ -476,42 +485,8 @@ async def cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await send_settings_menu(context.bot, chat_id)
     elif cmd == "warp_on":
-        c = read_config()
-        warp_has_keys = bool(c.get("warp_private_key", ""))
-        if warp_has_keys:
-            # Ключи есть — спрашиваем: переиспользовать или пересоздать
-            kb = [
-                [
-                    InlineKeyboardButton("✅ Использовать существующие", callback_data="warp_on_reuse"),
-                ],
-                [
-                    InlineKeyboardButton("🔄 Сгенерировать новые", callback_data="warp_regen"),
-                ],
-                [
-                    InlineKeyboardButton("🔙 Отмена", callback_data="m_settings"),
-                ],
-            ]
-            await context.bot.send_message(
-                chat_id,
-                "🔑 <b>Найдены существующие WARP ключи.</b>\n\nЧто сделать?",
-                reply_markup=InlineKeyboardMarkup(kb),
-                parse_mode="HTML"
-            )
-        else:
-            # Ключей нет — сразу генерируем
-            await context.bot.send_message(chat_id, "⏳ Ключей нет — генерирую новый WARP аккаунт...\nМожет занять 1–2 минуты.")
-            rc, out = run_script('--enable-warp=true', timeout=240)
-            snippet = out if len(out) < 3900 else out[:3900] + "\n...(truncated)"
-            status = "✅ WARP включён." if rc == 0 else "❌ Ошибка при включении WARP."
-            await context.bot.send_message(
-                chat_id,
-                f"{status}\n<blockquote>{snippet}</blockquote>" if snippet else status,
-                parse_mode="HTML"
-            )
-            await send_settings_menu(context.bot, chat_id)
-    elif cmd == "warp_on_reuse":
-        # Переиспользуем существующие ключи (warp on)
-        await context.bot.send_message(chat_id, "⏳ Включаю WARP с существующими ключами...")
+        # Включаем: скрипт сам разберётся — переиспользует ключи если живые, иначе gen
+        await context.bot.send_message(chat_id, "⏳ Включаю WARP...\nМожет занять 1–2 минуты.")
         rc, out = run_script('--enable-warp=true', timeout=240)
         snippet = out if len(out) < 3900 else out[:3900] + "\n...(truncated)"
         status = "✅ WARP включён." if rc == 0 else "❌ Ошибка при включении WARP."
@@ -522,7 +497,7 @@ async def cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await send_settings_menu(context.bot, chat_id)
     elif cmd == "warp_regen":
-        # Принудительная перегенерация ключей (warp gen)
+        # Принудительная перегенерация: удаляет старый аккаунт, создаёт новый
         await context.bot.send_message(chat_id, "⏳ Генерирую новый WARP аккаунт...\nМожет занять 1–2 минуты.")
         rc, out = run_script('--warp-regen', timeout=240)
         snippet = out if len(out) < 3900 else out[:3900] + "\n...(truncated)"
@@ -533,29 +508,8 @@ async def cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML"
         )
         await send_settings_menu(context.bot, chat_id)
-    elif cmd == "warp_set_free":
-        # Переключаем на бесплатный WARP (убираем лицензию если была)
-        c = read_config()
-        warp_license = c.get("warp_license", "")
-        if warp_license:
-            # Есть лицензия — нужно пересоздать аккаунт без неё
-            await context.bot.send_message(chat_id, "⏳ Переключаю на WARP бесплатный...\nМожет занять 1–2 минуты.")
-            write_config("warp_license", "")
-            rc, out = run_script('--warp-regen', timeout=240)
-        else:
-            # Лицензии нет — просто включаем (переиспользует ключи если есть)
-            await context.bot.send_message(chat_id, "⏳ Включаю WARP...\nМожет занять 1–2 минуты.")
-            rc, out = run_script('--enable-warp=true', timeout=240)
-        snippet = out if len(out) < 3900 else out[:3900] + "\n...(truncated)"
-        status = "✅ WARP включён." if rc == 0 else "❌ Ошибка."
-        await context.bot.send_message(
-            chat_id,
-            f"{status}\n<blockquote>{snippet}</blockquote>" if snippet else status,
-            parse_mode="HTML"
-        )
-        await send_settings_menu(context.bot, chat_id)
     elif cmd == "warp_set_plus":
-        # Запрашиваем лицензию
+        # Запрашиваем лицензию WARP+
         c = read_config()
         cur_license = c.get("warp_license", "")
         context.user_data["state"] = "setting"
@@ -591,7 +545,7 @@ async def cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 for o in ['reality', 'letsencrypt', 'selfsigned', 'notls']
             ]
         elif arg == "warp":
-            # Теперь WARP управляется тремя кнопками прямо в меню настроек
+            # WARP управляется через warp_menu
             await send_settings_menu(context.bot, chat_id)
             return
         kb.append([InlineKeyboardButton("🔙", callback_data="m_settings")])
