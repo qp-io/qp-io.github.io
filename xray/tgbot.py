@@ -428,9 +428,8 @@ async def cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif cmd == "set":
         await apply_setting(update, context, arg, arg2)
     elif cmd == "warp_off":
-        write_config("warp", "OFF")
         await context.bot.send_message(chat_id, "⏳ Отключаю WARP...")
-        rc, out = run_script()
+        rc, out = run_script('--enable-warp=false')
         snippet = out if len(out) < 3900 else out[:3900] + "\n...(truncated)"
         await context.bot.send_message(
             chat_id,
@@ -479,11 +478,8 @@ async def cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup(kb)
         )
     elif cmd == "warp_free":
-        # Пишем warp=ON без лицензии — скрипт сам создаёт аккаунт
-        write_config("warp", "ON")
-        write_config("warp_license", "")
         await context.bot.send_message(chat_id, "⏳ Включаю WARP...\nМожет занять 1–2 минуты.")
-        rc, out = run_script(timeout=240)
+        rc, out = run_script('--enable-warp=true', timeout=240)
         snippet = out if len(out) < 3900 else out[:3900] + "\n...(truncated)"
         await context.bot.send_message(
             chat_id,

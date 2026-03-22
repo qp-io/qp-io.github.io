@@ -2285,7 +2285,7 @@ function config_warp_menu {
           -z ${config[warp_interface_ipv4]} || \
           -z ${config[warp_interface_ipv6]} ]]; then
       temp_file=$(mktemp)
-      warp_create_account > "${temp_file}"
+      warp_create_account 2>"${temp_file}"
       exit_code=$?
       error=$(< "${temp_file}")
       rm -f "${temp_file}"
@@ -2295,6 +2295,7 @@ function config_warp_menu {
       fi
     fi
     config[warp]=ON
+    update_config_file
     while true; do
       warp_license=$(whiptail --clear --backtitle "$BACKTITLE" --title "WARP+ Лицензия" \
         --inputbox "Введите лицензию WARP+:" $HEIGHT $WIDTH "${config[warp_license]}" \
@@ -2307,7 +2308,7 @@ function config_warp_menu {
         continue
       fi
       temp_file=$(mktemp)
-      warp_add_license "${config[warp_id]}" "${config[warp_token]}" "${warp_license}" > "${temp_file}"
+      warp_add_license "${config[warp_id]}" "${config[warp_token]}" "${warp_license}" 2>"${temp_file}"
       exit_code=$?
       error=$(< "${temp_file}")
       rm -f "${temp_file}"
@@ -2320,6 +2321,7 @@ function config_warp_menu {
   done
   config[warp]=$old_warp
   config[warp_license]=$old_warp_license
+  update_config_file
 }
 
 function config_tgbot_menu {
@@ -2514,9 +2516,9 @@ function warp_api {
   if [[ response_code -gt 399 ]]; then
     error=$(echo "${response_body}" | jq -r '.errors[0].message' 2> /dev/null || true)
     if [[ -n ${error} && ${error} != 'null' ]]; then
-      echo "${error}"
+      echo "${error}" >&2
     else
-      echo "HTTP ${response_code}: ${response_body}"
+      echo "HTTP ${response_code}: ${response_body}" >&2
     fi
     return 2
   fi
@@ -2526,10 +2528,10 @@ function warp_api {
 function warp_create_account {
   local response
   local reg_exit
-  docker run --rm -v "${config_path}":/data "${image[wgcf]}" register --config /data/wgcf-account.toml --accept-tos
+  docker run --rm -v "${config_path}":/data "${image[wgcf]}" register --config /data/wgcf-account.toml --accept-tos >/dev/null 2>&1
   reg_exit=$?
   if [[ ${reg_exit} -ne 0 || ! -r ${config_path}/wgcf-account.toml ]]; then
-    echo "Ошибка создания аккаунта WARP! (exit ${reg_exit})"
+    echo "Ошибка создания аккаунта WARP! (exit ${reg_exit})" >&2
     return 1
   fi
   config[warp_token]=$(grep 'access_token' "${config_path}/wgcf-account.toml" | sed "s/.*= '\\(.*\\)'/\\1/")
@@ -2537,13 +2539,13 @@ function warp_create_account {
   config[warp_private_key]=$(grep 'private_key' "${config_path}/wgcf-account.toml" | sed "s/.*= '\\(.*\\)'/\\1/")
   rm -f "${config_path}/wgcf-account.toml"
   if [[ -z ${config[warp_token]} || -z ${config[warp_id]} || -z ${config[warp_private_key]} ]]; then
-    echo "Ошибка: не удалось прочитать данные аккаунта из wgcf-account.toml"
+    echo "Ошибка: не удалось прочитать данные аккаунта из wgcf-account.toml" >&2
     return 1
   fi
-  response=$(warp_api "GET" "/reg/${config[warp_id]}" "" "${config[warp_token]}")
+  response=$(warp_api "GET" "/reg/${config[warp_id]}" "" "${config[warp_token]}" 2>&1)
   if [[ $? -ne 0 ]]; then
     if [[ -n ${response} ]]; then
-      echo "${response}"
+      echo "${response}" >&2
     fi
     return 1
   fi
@@ -2560,10 +2562,10 @@ function warp_add_license {
   local data
   local response
   data='{"license": "'$license'"}'
-  response=$(warp_api "PUT" "/reg/${id}/account" "${data}" "${token}")
+  response=$(warp_api "PUT" "/reg/${id}/account" "${data}" "${token}" 2>&1)
   if [[ $? -ne 0 ]]; then
     if [[ -n ${response} ]]; then
-      echo "${response}"
+      echo "${response}" >&2
     fi
     return 1
   fi
