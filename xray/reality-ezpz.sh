@@ -105,7 +105,7 @@ regex[path]="^/.*$"
 function show_help {
   echo ""
   echo "Использование: reality-ezpz.sh [-t|--transport=tcp|http|xhttp|grpc|ws|tuic|hysteria2|shadowtls] [-d|--domain=<домен>] [--server=<сервер>] [--regenerate] [--default]
-  [-r|--restart] [--enable-safenet=true|false] [--port=<порт>] [-c|--core=xray|sing-box] [--enable-warp=true|false]
+  [-r|--restart] [--enable-safenet=true|false] [--port=<порт>] [-c|--core=xray|sing-box] [--enable-warp=true|false] [--warp-regen]
   [--warp-license=<лицензия>] [--security=reality|letsencrypt|selfsigned|notls] [-m|--menu] [--show-server-config] [--add-user=<имя>] [--lists-users]
   [--show-user=<имя>] [--delete-user=<имя>] [--backup] [--restore=<url|файл>] [--backup-password=<пароль>] [-u|--uninstall]
   [--path=<путь>] [--host=<хост>]"
@@ -122,6 +122,7 @@ function show_help {
   echo "      --enable-safenet <true|false> Включить/выключить SafeNet (блокировка вирусов и взрослого контента)"
   echo "      --port <порт>          Порт сервера (по умолчанию: ${defaults[port]})"
   echo "      --enable-warp <true|false> Включить/выключить Cloudflare WARP"
+  echo "      --warp-regen               Принудительно пересоздать WARP аккаунт и ключи"
   echo "      --warp-license <лицензия> Добавить лицензию Cloudflare WARP+"
   echo "  -c  --core <sing-box|xray> Выбрать ядро (xray, sing-box, по умолчанию: ${defaults[core]})"
   echo "      --security <reality|letsencrypt|selfsigned|notls> Тип шифрования (notls = без шифрования, по умолчанию: ${defaults[security]})" 
@@ -143,7 +144,7 @@ function show_help {
 
 function parse_args {
   local opts
-  opts=$(getopt -o t:d:ruc:mh --long transport:,domain:,server:,path:,host:,regenerate,default,restart,uninstall,enable-safenet:,port:,warp-license:,enable-warp:,core:,security:,menu,show-server-config,add-user:,list-users,show-user:,delete-user:,backup,restore:,backup-password:,enable-tgbot:,tgbot-token:,tgbot-admins:,help -- "$@")
+  opts=$(getopt -o t:d:ruc:mh --long transport:,domain:,server:,path:,host:,regenerate,default,restart,uninstall,enable-safenet:,port:,warp-license:,enable-warp:,warp-regen,core:,security:,menu,show-server-config,add-user:,list-users,show-user:,delete-user:,backup,restore:,backup-password:,enable-tgbot:,tgbot-token:,tgbot-admins:,help -- "$@")
   if [[ $? -ne 0 ]]; then
     return 1
   fi
@@ -246,6 +247,11 @@ function parse_args {
           return 1
         fi
         shift 2
+        ;;
+      --warp-regen)
+        args[warp_regen]=true
+        args[warp]=ON
+        shift
         ;;
       -c|--core)
         args[core]="$2"
@@ -641,23 +647,34 @@ function build_config {
     config[domain]="${config[server]}"
   fi
   if [[ -n "${args[warp]}" && "${args[warp]}" == 'OFF' && "${config_file[warp]}" == 'ON' ]]; then
-    # Выключаем WARP — ключи сохраняем для повторного использования
+    # Выключаем WARP — ключи намеренно сохраняем для повторного использования
     config[warp]='OFF'
     update_config_file
   fi
+  # --warp-regen: принудительно пересоздать аккаунт (удалить старый если есть, создать новый)
+  if [[ "${args[warp_regen]}" == 'true' ]]; then
+    if [[ -n ${config[warp_id]} && -n ${config[warp_token]} ]]; then
+      warp_delete_account "${config[warp_id]}" "${config[warp_token]}"
+    fi
+    warp_create_account || exit 1
+    config[warp]='ON'
+    update_config_file
+  fi
   # Включение WARP: переиспользуем ключи если аккаунт ещё жив
-  if [[ -n "${args[warp]}" && "${args[warp]}" == 'ON' && "${config_file[warp]}" == 'OFF' ]]; then
-    if [[ -n ${config[warp_private_key]} && -n ${config[warp_token]} && -n ${config[warp_id]} && \
-          -n ${config[warp_client_id]} && -n ${config[warp_interface_ipv4]} && -n ${config[warp_interface_ipv6]} ]] && \
-       warp_api "GET" "/reg/${config[warp_id]}" "" "${config[warp_token]}" >/dev/null 2>&1; then
-      # Аккаунт жив — просто включаем
-      config[warp]='ON'
-      update_config_file
-    else
-      # Ключей нет или аккаунт протух — создаём новый
-      config[warp]='OFF'
-      warp_create_account || exit 1
-      config[warp]='ON'
+  if [[ -n "${args[warp]}" && "${args[warp]}" == 'ON' && "${args[warp_regen]}" != 'true' ]]; then
+    if [[ "${config_file[warp]}" == 'OFF' || "${config[warp]}" != 'ON' ]]; then
+      if [[ -n ${config[warp_private_key]} && -n ${config[warp_token]} && -n ${config[warp_id]} && \
+            -n ${config[warp_client_id]} && -n ${config[warp_interface_ipv4]} && -n ${config[warp_interface_ipv6]} ]] && \
+         warp_api "GET" "/reg/${config[warp_id]}" "" "${config[warp_token]}" >/dev/null 2>&1; then
+        # Аккаунт жив — просто включаем (warp on)
+        config[warp]='ON'
+        update_config_file
+      else
+        # Ключей нет или аккаунт протух — создаём новый (warp gen)
+        config[warp]='OFF'
+        warp_create_account || exit 1
+        config[warp]='ON'
+      fi
     fi
   fi
   # Защита: warp=ON но ключи пустые
@@ -2268,6 +2285,7 @@ function config_safenet_menu {
 function config_warp_menu {
   local warp
   local warp_license
+  local warp_action
   local error
   local temp_file
   local exit_code
@@ -2283,18 +2301,60 @@ function config_warp_menu {
       break
     fi
     if [[ $warp == 'Выключить' ]]; then
+      # Только переключаем флаг, ключи намеренно сохраняем для повторного использования
       config[warp]=OFF
-      if [[ -n ${config[warp_id]} && -n ${config[warp_token]} ]]; then
-        warp_delete_account "${config[warp_id]}" "${config[warp_token]}"
-      fi
+      update_config_file
       return
     fi
-    if [[ -z ${config[warp_private_key]} || \
-          -z ${config[warp_token]} || \
-          -z ${config[warp_id]} || \
-          -z ${config[warp_client_id]} || \
-          -z ${config[warp_interface_ipv4]} || \
-          -z ${config[warp_interface_ipv6]} ]]; then
+    # --- Включение WARP ---
+    local has_keys=false
+    if [[ -n ${config[warp_private_key]} && -n ${config[warp_token]} && \
+          -n ${config[warp_id]} && -n ${config[warp_client_id]} && \
+          -n ${config[warp_interface_ipv4]} && -n ${config[warp_interface_ipv6]} ]]; then
+      has_keys=true
+    fi
+    if [[ "${has_keys}" == 'true' ]]; then
+      # Ключи есть — спрашиваем: переиспользовать или пересоздать
+      warp_action=$(whiptail --clear --backtitle "$BACKTITLE" --title "WARP — Ключи найдены" \
+        --radiolist --noitem "Найдены существующие WARP ключи. Что сделать?" $HEIGHT $WIDTH $CHOICE_HEIGHT \
+        "Использовать существующие" "on" \
+        "Сгенерировать новые" "off" \
+        3>&1 1>&2 2>&3)
+      if [[ $? -ne 0 ]]; then
+        continue
+      fi
+      if [[ $warp_action == 'Сгенерировать новые' ]]; then
+        # warp gen: удаляем старый аккаунт и создаём новый
+        temp_file=$(mktemp)
+        if [[ -n ${config[warp_id]} && -n ${config[warp_token]} ]]; then
+          warp_delete_account "${config[warp_id]}" "${config[warp_token]}"
+        fi
+        warp_create_account 2>"${temp_file}"
+        exit_code=$?
+        error=$(< "${temp_file}")
+        rm -f "${temp_file}"
+        if [[ ${exit_code} -ne 0 ]]; then
+          message_box "Ошибка создания аккаунта WARP" "${error}"
+          continue
+        fi
+      else
+        # warp on: проверяем что аккаунт ещё жив
+        if ! warp_api "GET" "/reg/${config[warp_id]}" "" "${config[warp_token]}" >/dev/null 2>&1; then
+          # Аккаунт протух — создаём новый автоматически
+          message_box "WARP" "Существующий аккаунт недействителен. Будет создан новый."
+          temp_file=$(mktemp)
+          warp_create_account 2>"${temp_file}"
+          exit_code=$?
+          error=$(< "${temp_file}")
+          rm -f "${temp_file}"
+          if [[ ${exit_code} -ne 0 ]]; then
+            message_box "Ошибка создания аккаунта WARP" "${error}"
+            continue
+          fi
+        fi
+      fi
+    else
+      # Ключей нет — сразу генерируем (warp gen)
       temp_file=$(mktemp)
       warp_create_account 2>"${temp_file}"
       exit_code=$?
