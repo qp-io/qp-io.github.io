@@ -2482,13 +2482,13 @@ function warp_api {
   local data=$3
   local token=$4
   local team_token=$5
-  local endpoint=https://api.cloudflareclient.com/v0a2158
+  local endpoint=https://api.cloudflareclient.com/v0a1922
   local temp_file
   local error
   local command
   local headers=(
     "User-Agent: okhttp/3.12.1"
-    "CF-Client-Version: a-6.10-2158"
+    "CF-Client-Version: a-6.10-1922"
     "Content-Type: application/json"
   )
   temp_file=$(mktemp)
@@ -2498,7 +2498,7 @@ function warp_api {
   if [[ -n ${team_token} ]]; then
     headers+=("Cf-Access-Jwt-Assertion: ${team_token}")
   fi
-  command="curl -sLX ${verb} -m 3 -w '%{http_code}' -o ${temp_file} ${endpoint}${resource}"
+  command="curl -sLX ${verb} -m 15 -w '%{http_code}' -o ${temp_file} ${endpoint}${resource}"
   for header in "${headers[@]}"; do
     command+=" -H '${header}'"
   done
@@ -2513,8 +2513,10 @@ function warp_api {
   fi
   if [[ response_code -gt 399 ]]; then
     error=$(echo "${response_body}" | jq -r '.errors[0].message' 2> /dev/null || true)
-    if [[ ${error} != 'null' ]]; then
+    if [[ -n ${error} && ${error} != 'null' ]]; then
       echo "${error}"
+    else
+      echo "HTTP ${response_code}: ${response_body}"
     fi
     return 2
   fi
@@ -2523,15 +2525,21 @@ function warp_api {
 
 function warp_create_account {
   local response
+  local reg_exit
   docker run --rm -v "${config_path}":/data "${image[wgcf]}" register --config /data/wgcf-account.toml --accept-tos
-  if [[ $? -ne 0 || ! -r ${config_path}/wgcf-account.toml ]]; then
-    echo "Ошибка создания аккаунта WARP!"
+  reg_exit=$?
+  if [[ ${reg_exit} -ne 0 || ! -r ${config_path}/wgcf-account.toml ]]; then
+    echo "Ошибка создания аккаунта WARP! (exit ${reg_exit})"
     return 1
   fi
-  config[warp_token]=$(cat ${config_path}/wgcf-account.toml | grep 'access_token' | cut -d "'" -f2)
-  config[warp_id]=$(cat ${config_path}/wgcf-account.toml | grep 'device_id' | cut -d "'" -f2)
-  config[warp_private_key]=$(cat ${config_path}/wgcf-account.toml | grep 'private_key' | cut -d "'" -f2)
-  rm -f ${config_path}/wgcf-account.toml
+  config[warp_token]=$(grep 'access_token' "${config_path}/wgcf-account.toml" | sed "s/.*= '\\(.*\\)'/\\1/")
+  config[warp_id]=$(grep 'device_id' "${config_path}/wgcf-account.toml" | sed "s/.*= '\\(.*\\)'/\\1/")
+  config[warp_private_key]=$(grep 'private_key' "${config_path}/wgcf-account.toml" | sed "s/.*= '\\(.*\\)'/\\1/")
+  rm -f "${config_path}/wgcf-account.toml"
+  if [[ -z ${config[warp_token]} || -z ${config[warp_id]} || -z ${config[warp_private_key]} ]]; then
+    echo "Ошибка: не удалось прочитать данные аккаунта из wgcf-account.toml"
+    return 1
+  fi
   response=$(warp_api "GET" "/reg/${config[warp_id]}" "" "${config[warp_token]}")
   if [[ $? -ne 0 ]]; then
     if [[ -n ${response} ]]; then
