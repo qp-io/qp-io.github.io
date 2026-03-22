@@ -190,9 +190,9 @@ async def send_settings_menu(bot, chat_id, text=None):
     warp = c.get("warp", "OFF")
     warp_license = c.get("warp_license", "")
     if warp_license:
-        warp_btn_label = "WARP+  ✅" if warp == "ON" else "WARP+  ⬜"
+        warp_btn_label = "WARP+ ON" if warp == "ON" else "WARP+ OFF"
     else:
-        warp_btn_label = "WARP  ✅" if warp == "ON" else "WARP  ⬜"
+        warp_btn_label = "WARP ON" if warp == "ON" else "WARP OFF"
     if not text:
         text = (
             "⚙️ <b>Настройки</b>\n"
