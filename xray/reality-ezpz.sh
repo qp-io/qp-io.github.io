@@ -641,62 +641,27 @@ function build_config {
     config[domain]="${config[server]}"
   fi
   if [[ -n "${args[warp]}" && "${args[warp]}" == 'OFF' && "${config_file[warp]}" == 'ON' ]]; then
-    # Выключаем WARP, но сохраняем учётные данные для повторного использования
-    config[warp]='OFF'
-    update_config_file
-  fi
-  if [[ -n "${args[warp]}" && "${args[warp]}" == 'ON' && "${config_file[warp]}" == 'OFF' ]]; then
-    # Повторное включение: переиспользуем ключи если они есть и аккаунт ещё живой
-    if [[ -n ${config[warp_private_key]} && \
-          -n ${config[warp_token]} && \
-          -n ${config[warp_id]} && \
-          -n ${config[warp_client_id]} && \
-          -n ${config[warp_interface_ipv4]} && \
-          -n ${config[warp_interface_ipv6]} ]]; then
-      if warp_api "GET" "/reg/${config[warp_id]}" "" "${config[warp_token]}" >/dev/null 2>&1; then
-        # Аккаунт жив — просто включаем
-        config[warp]='ON'
-        update_config_file
-      else
-        # Аккаунт протух — создаём новый
-        config[warp]='OFF'
-        warp_create_account || exit 1
-        if [[ -n "${config[warp_license]}" ]]; then
-          warp_add_license "${config[warp_id]}" "${config[warp_token]}" "${config[warp_license]}" || exit 1
-        fi
-        config[warp]='ON'
-      fi
-    else
-      # Ключей нет — создаём новый аккаунт
-      config[warp]='OFF'
-      warp_create_account || exit 1
-      if [[ -n "${config[warp_license]}" ]]; then
-        warp_add_license "${config[warp_id]}" "${config[warp_token]}" "${config[warp_license]}" || exit 1
-      fi
-      config[warp]='ON'
+    if [[ -n ${config[warp_id]} && -n ${config[warp_token]} ]]; then
+      warp_delete_account "${config[warp_id]}" "${config[warp_token]}"
     fi
   fi
-  # Защита: WARP=ON, но ключи пустые (например после ручного редактирования конфига)
-  if [[ "${config[warp]}" == 'ON' && ( -z ${config[warp_private_key]} || \
+  if { [[ -n "${args[warp]}" && "${args[warp]}" == 'ON' && "${config_file[warp]}" == 'OFF' ]] || \
+       [[ "${config[warp]}" == 'ON' && ( -z ${config[warp_private_key]} || \
                                          -z ${config[warp_token]} || \
                                          -z ${config[warp_id]} || \
                                          -z ${config[warp_client_id]} || \
                                          -z ${config[warp_interface_ipv4]} || \
-                                         -z ${config[warp_interface_ipv6]} ) ]]; then
+                                         -z ${config[warp_interface_ipv6]} ) ]]; }; then
     config[warp]='OFF'
     warp_create_account || exit 1
-    if [[ -n "${config[warp_license]}" ]]; then
-      warp_add_license "${config[warp_id]}" "${config[warp_token]}" "${config[warp_license]}" || exit 1
-    fi
     config[warp]='ON'
   fi
-  if [[ -n ${args[warp_license]} && -n ${config_file[warp_license]} && "${args[warp_license]}" != "${config_file[warp_license]}" ]]; then
+  if [[ -n "${args[warp_license]}" && ( -z "${config_file[warp_license]}" || "${args[warp_license]}" != "${config_file[warp_license]}" ) ]]; then
     if ! warp_add_license "${config[warp_id]}" "${config[warp_token]}" "${args[warp_license]}"; then
-      config[warp]='OFF'
       config[warp_license]=""
-      warp_delete_account "${config[warp_id]}" "${config[warp_token]}"
-      echo "WARP был отключен из-за ошибки лицензии."
-    fi 
+      echo "Ошибка лицензии WARP+! Проверьте лицензию и попробуйте снова."
+      exit 1
+    fi
   fi
 }
 
@@ -2303,34 +2268,18 @@ function config_warp_menu {
       break
     fi
     if [[ $warp == 'Выключить' ]]; then
-      # Сохраняем учётные данные — при повторном включении переиспользуем
       config[warp]=OFF
-      update_config_file
+      if [[ -n ${config[warp_id]} && -n ${config[warp_token]} ]]; then
+        warp_delete_account "${config[warp_id]}" "${config[warp_token]}"
+      fi
       return
     fi
-    # Включаем: переиспользуем ключи если аккаунт ещё жив
-    if [[ -n ${config[warp_private_key]} && \
-          -n ${config[warp_token]} && \
-          -n ${config[warp_id]} && \
-          -n ${config[warp_client_id]} && \
-          -n ${config[warp_interface_ipv4]} && \
-          -n ${config[warp_interface_ipv6]} ]]; then
-      if ! warp_api "GET" "/reg/${config[warp_id]}" "" "${config[warp_token]}" >/dev/null 2>&1; then
-        # Аккаунт протух — удаляем и создаём новый
-        warp_delete_account "${config[warp_id]}" "${config[warp_token]}"
-        temp_file=$(mktemp)
-        warp_create_account 2>"${temp_file}"
-        exit_code=$?
-        error=$(< "${temp_file}")
-        rm -f "${temp_file}"
-        if [[ ${exit_code} -ne 0 ]]; then
-          message_box "Ошибка создания аккаунта WARP" "${error}"
-          continue
-        fi
-      fi
-      # Аккаунт жив — просто включаем без создания нового
-    else
-      # Ключей нет — создаём новый аккаунт
+    if [[ -z ${config[warp_private_key]} || \
+          -z ${config[warp_token]} || \
+          -z ${config[warp_id]} || \
+          -z ${config[warp_client_id]} || \
+          -z ${config[warp_interface_ipv4]} || \
+          -z ${config[warp_interface_ipv6]} ]]; then
       temp_file=$(mktemp)
       warp_create_account 2>"${temp_file}"
       exit_code=$?
@@ -2366,8 +2315,9 @@ function config_warp_menu {
       return
     done
   done
-  # При Cancel — не трогаем файл: состояние уже актуально
-  # (выключение/включение сохраняются немедленно через update_config_file внутри цикла)
+  config[warp]=$old_warp
+  config[warp_license]=$old_warp_license
+  update_config_file
 }
 
 function config_tgbot_menu {
@@ -2574,15 +2524,22 @@ function warp_api {
 function warp_create_account {
   local response
   local reg_exit
-  docker run --rm -v "${config_path}":/data "${image[wgcf]}" register --config /data/wgcf-account.toml --accept-tos >/dev/null 2>&1
+  local reg_output
+  # Удаляем остаток от прошлой регистрации — иначе wgcf упадёт с "account already exists"
+  rm -f "${config_path}/wgcf-account.toml"
+  reg_output=$(docker run --rm -v "${config_path}":/data "${image[wgcf]}" register --config /data/wgcf-account.toml --accept-tos 2>&1)
   reg_exit=$?
   if [[ ${reg_exit} -ne 0 || ! -r ${config_path}/wgcf-account.toml ]]; then
     echo "Ошибка создания аккаунта WARP! (exit ${reg_exit})" >&2
+    if [[ -n "${reg_output}" ]]; then
+      echo "${reg_output}" >&2
+    fi
+    rm -f "${config_path}/wgcf-account.toml"
     return 1
   fi
-  config[warp_token]=$(grep 'access_token' "${config_path}/wgcf-account.toml" | sed "s/.*= '\\(.*\\)'/\\1/")
-  config[warp_id]=$(grep 'device_id' "${config_path}/wgcf-account.toml" | sed "s/.*= '\\(.*\\)'/\\1/")
-  config[warp_private_key]=$(grep 'private_key' "${config_path}/wgcf-account.toml" | sed "s/.*= '\\(.*\\)'/\\1/")
+  config[warp_token]=$(grep 'access_token' "${config_path}/wgcf-account.toml" | cut -d "'" -f2)
+  config[warp_id]=$(grep 'device_id' "${config_path}/wgcf-account.toml" | cut -d "'" -f2)
+  config[warp_private_key]=$(grep 'private_key' "${config_path}/wgcf-account.toml" | cut -d "'" -f2)
   rm -f "${config_path}/wgcf-account.toml"
   if [[ -z ${config[warp_token]} || -z ${config[warp_id]} || -z ${config[warp_private_key]} ]]; then
     echo "Ошибка: не удалось прочитать данные аккаунта из wgcf-account.toml" >&2
