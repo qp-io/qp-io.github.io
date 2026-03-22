@@ -641,17 +641,32 @@ function build_config {
     config[domain]="${config[server]}"
   fi
   if [[ -n "${args[warp]}" && "${args[warp]}" == 'OFF' && "${config_file[warp]}" == 'ON' ]]; then
-    if [[ -n ${config[warp_id]} && -n ${config[warp_token]} ]]; then
-      warp_delete_account "${config[warp_id]}" "${config[warp_token]}"
+    # Выключаем WARP — ключи сохраняем для повторного использования
+    config[warp]='OFF'
+    update_config_file
+  fi
+  # Включение WARP: переиспользуем ключи если аккаунт ещё жив
+  if [[ -n "${args[warp]}" && "${args[warp]}" == 'ON' && "${config_file[warp]}" == 'OFF' ]]; then
+    if [[ -n ${config[warp_private_key]} && -n ${config[warp_token]} && -n ${config[warp_id]} && \
+          -n ${config[warp_client_id]} && -n ${config[warp_interface_ipv4]} && -n ${config[warp_interface_ipv6]} ]] && \
+       warp_api "GET" "/reg/${config[warp_id]}" "" "${config[warp_token]}" >/dev/null 2>&1; then
+      # Аккаунт жив — просто включаем
+      config[warp]='ON'
+      update_config_file
+    else
+      # Ключей нет или аккаунт протух — создаём новый
+      config[warp]='OFF'
+      warp_create_account || exit 1
+      config[warp]='ON'
     fi
   fi
-  if { [[ -n "${args[warp]}" && "${args[warp]}" == 'ON' && "${config_file[warp]}" == 'OFF' ]] || \
-       [[ "${config[warp]}" == 'ON' && ( -z ${config[warp_private_key]} || \
+  # Защита: warp=ON но ключи пустые
+  if [[ "${config[warp]}" == 'ON' && ( -z ${config[warp_private_key]} || \
                                          -z ${config[warp_token]} || \
                                          -z ${config[warp_id]} || \
                                          -z ${config[warp_client_id]} || \
                                          -z ${config[warp_interface_ipv4]} || \
-                                         -z ${config[warp_interface_ipv6]} ) ]]; }; then
+                                         -z ${config[warp_interface_ipv6]} ) ]]; then
     config[warp]='OFF'
     warp_create_account || exit 1
     config[warp]='ON'
