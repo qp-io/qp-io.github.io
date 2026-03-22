@@ -313,9 +313,10 @@ async def apply_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, para
         await context.bot.send_message(chat_id, "⏳ Применяю настройки...")
         rc, out = run_script()
     snippet = out if len(out) < 3900 else out[:3900] + "\n...(truncated)"
+    status = "✅ Готово." if rc == 0 else "❌ Ошибка."
     await context.bot.send_message(
         chat_id,
-        f"✅ Готово.\n<blockquote>{snippet}</blockquote>",
+        f"{status}\n<blockquote>{snippet}</blockquote>" if snippet else status,
         parse_mode="HTML"
     )
     await send_settings_menu(context.bot, chat_id)
@@ -431,9 +432,10 @@ async def cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id, "⏳ Отключаю WARP...")
         rc, out = run_script('--enable-warp=false')
         snippet = out if len(out) < 3900 else out[:3900] + "\n...(truncated)"
+        status = "✅ WARP отключён." if rc == 0 else "❌ Ошибка при отключении WARP."
         await context.bot.send_message(
             chat_id,
-            f"✅ WARP отключён.\n<blockquote>{snippet}</blockquote>",
+            f"{status}\n<blockquote>{snippet}</blockquote>" if snippet else status,
             parse_mode="HTML"
         )
         await send_settings_menu(context.bot, chat_id)
@@ -481,9 +483,10 @@ async def cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id, "⏳ Включаю WARP...\nМожет занять 1–2 минуты.")
         rc, out = run_script('--enable-warp=true', timeout=240)
         snippet = out if len(out) < 3900 else out[:3900] + "\n...(truncated)"
+        status = "✅ WARP включён." if rc == 0 else "❌ Ошибка при включении WARP."
         await context.bot.send_message(
             chat_id,
-            f"✅ WARP включён.\n<blockquote>{snippet}</blockquote>",
+            f"{status}\n<blockquote>{snippet}</blockquote>" if snippet else status,
             parse_mode="HTML"
         )
         await send_settings_menu(context.bot, chat_id)
