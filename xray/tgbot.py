@@ -129,7 +129,7 @@ def get_users():
 
 
 def get_user_conf(name):
-    """Получает vless:// / hy2:// ссылки пользователя."""
+    """Получает vless:// / tuic:// / hy2:// ссылки пользователя."""
     _, out = run_script(f'--show-user {name}', timeout=120)
     result = []
     for line in out.splitlines():
@@ -191,6 +191,7 @@ async def send_settings_menu(bot, chat_id, text=None):
     if not text:
         text = (
             "⚙️ <b>Настройки</b>\n"
+            f"Core: <code>{c.get('core','?')}</code>\n"
             f"Transport: <code>{c.get('transport','?')}</code>\n"
             f"Security: <code>{c.get('security','?')}</code>\n"
             f"Port: <code>{c.get('port','?')}</code>\n"
@@ -205,10 +206,11 @@ async def send_settings_menu(bot, chat_id, text=None):
     )
     kb = [
         [
-            InlineKeyboardButton("Transport", callback_data="sub!transport"),
-            InlineKeyboardButton("Security", callback_data="sub!security")
+            InlineKeyboardButton("Core", callback_data="sub!core"),
+            InlineKeyboardButton("Transport", callback_data="sub!transport")
         ],
         [
+            InlineKeyboardButton("Security", callback_data="sub!security"),
             warp_btn
         ],
         [
@@ -437,8 +439,15 @@ async def cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await send_settings_menu(context.bot, chat_id)
     elif cmd == "sub":
-        if arg == "transport":
-            opts = ['tcp', 'http', 'grpc', 'ws', 'xhttp', 'hysteria2']
+        if arg == "core":
+            kb = [
+                [
+                    InlineKeyboardButton("Xray", callback_data="set!core!xray"),
+                    InlineKeyboardButton("Sing-Box", callback_data="set!core!sing-box")
+                ]
+            ]
+        elif arg == "transport":
+            opts = ['tcp', 'http', 'grpc', 'ws', 'xhttp', 'tuic', 'hysteria2', 'shadowtls']
             kb = [
                 [
                     InlineKeyboardButton(o, callback_data=f"set!transport!{o}")
