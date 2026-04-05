@@ -191,10 +191,12 @@ async def send_settings_menu(bot, chat_id, text=None):
     proto = c.get("protocol", "vless")
     if not text:
         if proto == "hysteria2":
+            sni = c.get('domain') or c.get('server', '?')
             text = (
                 "⚙️ <b>Настройки — Hysteria 2</b>\n"
-                f"Протокол: <code>hysteria2</code>\n"
+                f"Протокол: <code>hysteria2 (QUIC/UDP)</code>\n"
                 f"Security: <code>{c.get('security','?')}</code>\n"
+                f"SNI: <code>{sni}</code>\n"
                 f"Port: <code>{c.get('port','?')}</code>\n"
                 f"Server: <code>{c.get('server','?')}</code>\n"
                 f"WARP: <b>{warp}</b>"
@@ -226,16 +228,18 @@ async def send_settings_menu(bot, chat_id, text=None):
             InlineKeyboardButton("Port", callback_data="ask!port"),
             warp_btn,
         ],
+        [
+            InlineKeyboardButton("SNI / Домен", callback_data="ask!domain"),
+        ],
     ]
     # Кнопки только для VLESS
     if proto != "hysteria2":
         kb += [
             [
                 InlineKeyboardButton("Transport", callback_data="sub!transport"),
-                InlineKeyboardButton("SNI", callback_data="ask!domain"),
+                InlineKeyboardButton("Path", callback_data="ask!path"),
             ],
             [
-                InlineKeyboardButton("Path", callback_data="ask!path"),
                 InlineKeyboardButton("Host", callback_data="ask!host_header"),
             ],
         ]
@@ -297,7 +301,7 @@ async def ask_input(update: Update, context: ContextTypes.DEFAULT_TYPE, param: s
     context.user_data["param"] = param
     hints = {
         'server':       'Введите IP или домен сервера:',
-        'domain':       'Введите SNI/домен (оставьте пустым для hysteria2):',
+        'domain':       'Введите SNI/домен (для hysteria2 используется в hy2:// ссылке):',
         'port':         'Введите порт (1–65535):',
         'path':         'Введите путь (без /, только для VLESS):\n(Отправьте / для очистки)',
         'host_header':  'Введите Host заголовок (только для VLESS):',
@@ -324,10 +328,10 @@ async def apply_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, para
         await context.bot.send_message(chat_id, "⏳ Применяю настройки...")
         rc, out = run_script()
     elif param == "protocol":
-        # При смене на hysteria2 — выставить selfsigned если текущий security несовместим
+        # При смене на hysteria2 — сбросить только reality (несовместим)
         if val == "hysteria2":
             cfg = read_config()
-            if cfg.get("security", "reality") in ("reality", "letsencrypt"):
+            if cfg.get("security", "reality") == "reality":
                 write_config("security", "selfsigned")
         write_config(param, val)
         await context.bot.send_message(chat_id, "⏳ Применяю настройки...")
@@ -508,8 +512,9 @@ async def cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cfg = read_config()
             proto = cfg.get("protocol", "vless")
             if proto == "hysteria2":
-                sec_opts = ['selfsigned', 'notls']
-                hint = "Безопасность для Hysteria 2:"
+                # hysteria2: всё кроме reality
+                sec_opts = ['letsencrypt', 'selfsigned', 'notls']
+                hint = "Безопасность для Hysteria 2:\n(letsencrypt требует домен, selfsigned — самоподписанный)"
             else:
                 sec_opts = ['reality', 'letsencrypt', 'selfsigned', 'notls']
                 hint = "Выберите тип безопасности:"

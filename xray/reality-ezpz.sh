@@ -599,11 +599,11 @@ function build_config {
     exit 1
   fi
   if [[ ${config[protocol]} == 'hysteria2' && ${config[security]} == 'reality' ]]; then
-    echo 'Протокол "hysteria2" не совместим с "reality". Используйте selfsigned.'
+    echo 'Протокол "hysteria2" не совместим с "reality". Используйте letsencrypt или selfsigned.'
     exit 1
   fi
-  if [[ ${config[protocol]} == 'hysteria2' && ${config[security]} == 'letsencrypt' ]]; then
-    echo 'Протокол "hysteria2" не совместим с letsencrypt. UDP несовместим с haproxy. Используйте selfsigned.'
+  if [[ ${config[protocol]} == 'hysteria2' && ${config[security]} == 'letsencrypt' && ! ${config[server]} =~ ${regex[domain]} ]]; then
+    echo 'Для hysteria2 с letsencrypt необходим домен в параметре --server.'
     exit 1
   fi
   if [[ ${config[security]} == 'letsencrypt' && ${config[port]} -ne 443 ]]; then
@@ -795,6 +795,7 @@ services:
     $([[ ${config[security]} == 'reality' && ${config[port]} -eq 443 ]] && echo '- 80:8080' || true)
     $([[ ${config[security]} == 'reality' || ${config[security]} == 'notls' ]] && echo "- ${config[port]}:8443" || true)
     $([[ ${config[protocol]} == 'hysteria2' ]] && echo "- ${config[port]}:8443/udp" || true)
+    $([[ ${config[protocol]} == 'hysteria2' && ${config[security]} == 'letsencrypt' ]] && echo "- 80:8080" || true)
     $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[protocol]} != 'hysteria2' ]] && echo "expose:" || true)
     $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[protocol]} != 'hysteria2' ]] && echo "- 8443" || true)
     restart: always
@@ -1057,6 +1058,7 @@ function generate_engine_config {
       "shortIds": ["'"${config[short_id]}'"']
     }'
 
+  # TLS объект для VLESS (tcp/http с TLS)
   tls_object='"security": "tls",
     "tlsSettings": {
       "certificates": [{
@@ -1085,7 +1087,7 @@ function generate_engine_config {
       },'
   fi
 
-  # ── Hysteria 2 — QUIC/UDP, нативный inbound Xray v26.3.27 ─────────────
+  # ── Hysteria 2 — QUIC/UDP ──────────────────────────────────────────────
   if [[ ${config[protocol]} == 'hysteria2' ]]; then
     for user in "${!users[@]}"; do
       if [ -n "$users_object" ]; then
@@ -1093,6 +1095,24 @@ function generate_engine_config {
       fi
       users_object="${users_object}"'{"auth": "'"$(echo -n "${user}${users[${user}]}" | sha256sum | cut -d ' ' -f 1 | head -c 16)"'", "email": "'"${user}"'"}'
     done
+
+    # Сертификат для hysteria2:
+    # - selfsigned: из /etc/xray/server.crt + server.key
+    # - letsencrypt: через certbot (certbot_startup пишет сертификат в certificate/)
+    # SNI указывается только клиентом, сервер его не настраивает
+    local hy2_tls
+    if [[ ${config[security]} == 'notls' ]]; then
+      hy2_tls='"security": "none"'
+    else
+      hy2_tls='"security": "tls",
+        "tlsSettings": {
+          "certificates": [{
+            "oneTimeLoading": true,
+            "certificateFile": "/etc/xray/server.crt",
+            "keyFile": "/etc/xray/server.key"
+          }]
+        }'
+    fi
 
     cat >"${path[engine]}" <<XEOF
 {
@@ -1111,15 +1131,11 @@ function generate_engine_config {
     },
     "streamSettings": {
       "network": "hysteria2",
-      "security": "tls",
-      "tlsSettings": {
-        "certificates": [{
-          "oneTimeLoading": true,
-          "certificateFile": "/etc/xray/server.crt",
-          "keyFile": "/etc/xray/server.key"
-        }]
-      },
-      "hysteriaSettings": {"version": 2}
+      ${hy2_tls},
+      "hysteriaSettings": {
+        "version": 2,
+        "udpIdleTimeout": 60
+      }
     }
   }],
   "outbounds": [
@@ -1255,7 +1271,7 @@ function generate_config {
     fi
   fi
   # Для hysteria2: сертификат нужен напрямую в engine (без haproxy, UDP)
-  if [[ ${config[security]} != "reality" && ${config[security]} != "notls" && ${config[protocol]} == 'hysteria2' ]]; then
+  if [[ ${config[protocol]} == 'hysteria2' && ${config[security]} == 'selfsigned' ]]; then
     mkdir -p "${config_path}/certificate"
     if [[ ! -r "${path[server_crt]}" || ! -r "${path[server_key]}" ]]; then
       generate_selfsigned_certificate
@@ -1287,9 +1303,10 @@ function print_client_configuration {
   local client_config_ipv6
 
   if [[ ${config[protocol]} == 'hysteria2' ]]; then
-    # hy2://password@server:port/?insecure=1   (insecure только для selfsigned)
-    hy2_params=""
-    [[ ${config[security]} == 'selfsigned' ]] && hy2_params="insecure=1"
+    # hy2://password@server:port/?sni=domain&insecure=1
+    local hy2_sni="${config[domain]:-${config[server]}}"
+    hy2_params="sni=${hy2_sni}"
+    [[ ${config[security]} == 'selfsigned' ]] && hy2_params="${hy2_params}&insecure=1"
     client_config="hy2://"
     client_config="${client_config}$(echo -n "${username}${users[${username}]}" | sha256sum | cut -d ' ' -f 1 | head -c 16)"
     client_config="${client_config}@${config[server]}"
@@ -1509,12 +1526,14 @@ function view_user_menu {
 
     if [[ ${config[protocol]} == 'hysteria2' ]]; then
       user_config=$(printf '%s\n' \
-        "Протокол: hysteria2" \
+        "Протокол: hysteria2 (QUIC/UDP)" \
         "Примечание: ${username}" \
         "Адрес: ${config[server]}" \
-        "Порт: ${config[port]} (UDP)" \
+        "Порт: ${config[port]}" \
         "Пароль: $(echo -n "${username}${users[${username}]}" | sha256sum | cut -d ' ' -f 1 | head -c 16)" \
-        "Сертификат: ${config[security]}")
+        "SNI: ${config[domain]:-${config[server]}}" \
+        "Безопасность: ${config[security]}" \
+        "$([[ ${config[security]} == 'selfsigned' ]] && echo 'insecure=1 (самоподписанный)' || true)")
     else
       user_config=$(printf '%s\n' \
         "Протокол: vless" \
@@ -1589,7 +1608,7 @@ Host: ${config[host_header]}"
   server_config="${server_config}
 Безопасность: ${config[security]}"
   server_config="${server_config}
-SNI Домен: ${config[domain]}"
+SNI: ${config[domain]:-${config[server]}}"
   server_config="${server_config}
 SafeNet: ${config[safenet]}"
   server_config="${server_config}
@@ -1718,9 +1737,9 @@ function config_protocol_menu {
       message_box 'Ошибка' 'hysteria2 несовместим с reality. Используйте selfsigned.'
       continue
     fi
-    if [[ ${proto} == 'hysteria2' && ${config[security]} == 'letsencrypt' ]]; then
-      message_box 'Ошибка' 'hysteria2 несовместим с letsencrypt. UDP требует selfsigned.'
-      continue
+    if [[ ${proto} == 'hysteria2' && ${config[security]} == 'letsencrypt' && ! ${config[server]} =~ ${regex[domain]} ]]; then
+      message_box 'Предупреждение' 'Для hysteria2 с letsencrypt нужен домен. Сейчас security сброшен в selfsigned.'
+      config[security]='selfsigned'
     fi
     config[protocol]=$proto
     update_config_file
@@ -1819,11 +1838,11 @@ function config_security_menu {
       continue
     fi
     if [[ ${config[protocol]} == 'hysteria2' && ${security} == 'reality' ]]; then
-      message_box 'Ошибка' 'hysteria2 несовместим с reality. Используйте selfsigned.'
+      message_box 'Ошибка' 'hysteria2 несовместим с reality. Используйте letsencrypt или selfsigned.'
       continue
     fi
-    if [[ ${config[protocol]} == 'hysteria2' && ${security} == 'letsencrypt' ]]; then
-      message_box 'Ошибка' 'hysteria2 несовместим с letsencrypt. UDP требует selfsigned.'
+    if [[ ${config[protocol]} == 'hysteria2' && ${security} == 'letsencrypt' && ! ${config[server]} =~ ${regex[domain]} ]]; then
+      message_box 'Ошибка' 'Для hysteria2 с letsencrypt укажите домен сервера.'
       continue
     fi
     if [[ ${security} == 'letsencrypt' && ${config[port]} -ne 443 ]]; then
