@@ -37,13 +37,13 @@ WIDTH=65
 CHOICE_HEIGHT=20
 
 image[xray]="teddysun/xray:latest"
+image[sing-box]="gzxhwq/sing-box:latest"
 image[nginx]="nginx:latest"
 image[certbot]="certbot/certbot:latest"
 image[haproxy]="haproxy:latest"
 image[python]="python:3.12-alpine"
 image[wgcf]="virb3/wgcf:latest"
 
-defaults[protocol]=vless
 defaults[transport]=tcp
 defaults[domain]=yahoo.com
 defaults[port]=443
@@ -65,7 +65,6 @@ defaults[tgbot_admins]=""
 defaults[host_header]=""
 
 config_items=(
-  "protocol"
   "core"
   "security"
   "service_path"
@@ -105,14 +104,13 @@ regex[path]="^/.*$"
 
 function show_help {
   echo ""
-  echo "Использование: reality-ezpz.sh [--protocol=vless|hysteria2] [-t|--transport=tcp|http|xhttp|grpc|ws] [-d|--domain=<домен>] [--server=<сервер>] [--regenerate] [--default]
-  [-r|--restart] [--enable-safenet=true|false] [--port=<порт>] [-c|--core=xray] [--enable-warp=true|false]
+  echo "Использование: reality-ezpz.sh [-t|--transport=tcp|http|xhttp|grpc|ws|tuic|hysteria2|shadowtls] [-d|--domain=<домен>] [--server=<сервер>] [--regenerate] [--default]
+  [-r|--restart] [--enable-safenet=true|false] [--port=<порт>] [-c|--core=xray|sing-box] [--enable-warp=true|false]
   [--warp-license=<лицензия>] [--security=reality|letsencrypt|selfsigned|notls] [-m|--menu] [--show-server-config] [--add-user=<имя>] [--lists-users]
   [--show-user=<имя>] [--delete-user=<имя>] [--backup] [--restore=<url|файл>] [--backup-password=<пароль>] [-u|--uninstall]
   [--path=<путь>] [--host=<хост>]"
   echo ""
-  echo "      --protocol <vless|hysteria2>  Протокол (по умолчанию: ${defaults[protocol]})
-  -t, --transport <протокол>   Транспорт для VLESS: tcp/http/xhttp/grpc/ws (по умолчанию: ${defaults[transport]})"
+  echo "  -t, --transport <протокол> Транспортный протокол (по умолчанию: ${defaults[transport]})"
   echo "  -d, --domain <домен>       Домен для SNI (по умолчанию: ${defaults[domain]})"
   echo "      --server <сервер>      IP адрес или домен сервера (Обязателен домен, если используется letsencrypt)"
   echo "      --path <путь>          Путь сервиса (для ws, grpc, xhttp, http)"
@@ -125,7 +123,7 @@ function show_help {
   echo "      --port <порт>          Порт сервера (по умолчанию: ${defaults[port]})"
   echo "      --enable-warp <true|false> Включить/выключить Cloudflare WARP"
   echo "      --warp-license <лицензия> Добавить лицензию Cloudflare WARP+"
-  echo "  -c  --core <xray>          Выбрать ядро (только xray)"
+  echo "  -c  --core <sing-box|xray> Выбрать ядро (xray, sing-box, по умолчанию: ${defaults[core]})"
   echo "      --security <reality|letsencrypt|selfsigned|notls> Тип шифрования (notls = без шифрования, по умолчанию: ${defaults[security]})" 
   echo "  -m  --menu                 Показать меню"
   echo "      --enable-tgbot <true|false> Включить Telegram бота для управления"
@@ -145,29 +143,17 @@ function show_help {
 
 function parse_args {
   local opts
-  opts=$(getopt -o t:d:ruc:mh --long protocol:,transport:,domain:,server:,path:,host:,regenerate,default,restart,uninstall,enable-safenet:,port:,warp-license:,enable-warp:,core:,security:,menu,show-server-config,add-user:,list-users,show-user:,delete-user:,backup,restore:,backup-password:,enable-tgbot:,tgbot-token:,tgbot-admins:,help -- "$@")
+  opts=$(getopt -o t:d:ruc:mh --long transport:,domain:,server:,path:,host:,regenerate,default,restart,uninstall,enable-safenet:,port:,warp-license:,enable-warp:,core:,security:,menu,show-server-config,add-user:,list-users,show-user:,delete-user:,backup,restore:,backup-password:,enable-tgbot:,tgbot-token:,tgbot-admins:,help -- "$@")
   if [[ $? -ne 0 ]]; then
     return 1
   fi
   eval set -- "$opts"
   while true; do
     case $1 in
-      --protocol)
-        args[protocol]="$2"
-        case ${args[protocol]} in
-          vless|hysteria2)
-            shift 2
-            ;;
-          *)
-            echo "Неверный протокол: ${args[protocol]}"
-            return 1
-            ;;
-        esac
-        ;;
       -t|--transport)
         args[transport]="$2"
         case ${args[transport]} in
-          tcp|http|xhttp|grpc|ws)
+          tcp|http|xhttp|grpc|ws|tuic|hysteria2|shadowtls)
             shift 2
             ;;
           *)
@@ -264,7 +250,7 @@ function parse_args {
       -c|--core)
         args[core]="$2"
         case ${args[core]} in
-          xray)
+          xray|sing-box)
             shift 2
             ;;
           *)
@@ -598,12 +584,36 @@ function build_config {
     echo 'Вы не можете использовать транспорт "ws" с "reality". Используйте другой транспорт или измените безопасность.'
     exit 1
   fi
-  if [[ ${config[protocol]} == 'hysteria2' && ${config[security]} == 'reality' ]]; then
-    echo 'Протокол "hysteria2" не совместим с "reality". Используйте letsencrypt или selfsigned.'
+  if [[ ${config[transport]} == 'xhttp' && ${config[core]} != 'xray' ]]; then
+    echo 'Вы можете использовать транспорт "xhttp" только с ядром "xray". Смените ядро на xray.'
     exit 1
   fi
-  if [[ ${config[protocol]} == 'hysteria2' && ${config[security]} == 'letsencrypt' && ! ${config[server]} =~ ${regex[domain]} ]]; then
-    echo 'Для hysteria2 с letsencrypt необходим домен в параметре --server.'
+  if [[ ${config[transport]} == 'tuic' && ${config[security]} == 'reality' ]]; then
+    echo 'Вы не можете использовать транспорт "tuic" с "reality". Используйте другой транспорт или измените безопасность на letsencrypt или selfsigned'
+    exit 1
+  fi
+  if [[ ${config[transport]} == 'tuic' && ${config[core]} == 'xray' ]]; then
+    echo 'Вы не можете использовать транспорт "tuic" с ядром "xray". Используйте другой транспорт или смените ядро на sing-box'
+    exit 1
+  fi
+  if [[ ${config[transport]} == 'hysteria2' && ${config[security]} == 'letsencrypt' ]]; then
+    echo 'Для hysteria2 используйте "selfsigned" сертификат. letsencrypt требует haproxy, который несовместим с UDP.'
+    exit 1
+  fi
+  if [[ ${config[transport]} == 'tuic' && ${config[security]} == 'letsencrypt' ]]; then
+    echo 'Для tuic используйте "selfsigned" сертификат. letsencrypt требует haproxy, который несовместим с UDP.'
+    exit 1
+  fi
+  if [[ ${config[transport]} == 'hysteria2' && ${config[security]} == 'reality' ]]; then
+    echo 'Вы не можете использовать транспорт "hysteria2" с "reality". Используйте другой транспорт или измените безопасность на letsencrypt или selfsigned'
+    exit 1
+  fi
+  if [[ ${config[transport]} == 'hysteria2' && ${config[core]} == 'xray' ]]; then
+    echo 'Вы не можете использовать транспорт "hysteria2" с ядром "xray". Используйте другой транспорт или смените ядро на sing-box'
+    exit 1
+  fi
+  if [[ ${config[transport]} == 'shadowtls' && ${config[core]} == 'xray' ]]; then
+    echo 'Вы не можете использовать транспорт "shadowtls" с ядром "xray". Используйте другой транспорт или смените ядро на sing-box'
     exit 1
   fi
   if [[ ${config[security]} == 'letsencrypt' && ${config[port]} -ne 443 ]]; then
@@ -621,13 +631,13 @@ function build_config {
       exit 1
     fi
   fi
-  if [[ (-n "${args[security]}" || -n "${args[transport]}") && ("${args[security]}" == 'reality' || "${args[security]}" == 'notls') && ("${config_file[security]}" != 'reality' && "${config_file[security]}" != 'notls') ]]; then
+  if [[ (-n "${args[security]}" || -n "${args[transport]}") && ("${args[security]}" == 'reality' || "${args[security]}" == 'notls' || "${args[transport]}" == 'shadowtls') && ("${config_file[security]}" != 'reality' && "${config_file[security]}" != 'notls' && "${config_file[transport]}" != 'shadowtls') ]]; then
     config[domain]="${defaults[domain]}"
   fi
-  if [[ (-n "${args[security]}" || -n "${args[transport]}") && ("${args[security]}" != 'reality' && "${args[security]}" != 'notls') && ("${config_file[security]}" == 'reality' || "${config_file[security]}" == 'notls') ]]; then
+  if [[ (-n "${args[security]}" || -n "${args[transport]}") && ("${args[security]}" != 'reality' && "${args[security]}" != 'notls' && "${args[transport]}" != 'shadowtls') && ("${config_file[security]}" == 'reality' || "${config_file[security]}" == 'notls' || "${config_file[transport]}" == 'shadowtls') ]]; then
     config[domain]="${config[server]}"
   fi
-  if [[ -n "${args[server]}" && ("${config[security]}" != 'reality' && "${config[security]}" != 'notls') ]]; then
+  if [[ -n "${args[server]}" && ("${config[security]}" != 'reality' && "${config[security]}" != 'notls' && "${config[transport]}" != 'shadowtls') ]]; then
     config[domain]="${config[server]}"
   fi
   if [[ -n "${args[warp]}" && "${args[warp]}" == 'OFF' && "${config_file[warp]}" == 'ON' ]]; then
@@ -684,7 +694,7 @@ function generate_keys {
     local key_pair
     key_pair=$(docker run --rm ${image[xray]} xray x25519)
     config_file[private_key]=$(echo "${key_pair}" | grep 'PrivateKey:' | awk '{print $2}')
-    config_file[public_key]=$(echo "${key_pair}" | grep -E 'Password' | awk '{print $NF}')
+    config_file[public_key]=$(echo "${key_pair}" | grep 'Password:' | awk '{print $2}')
     config_file[short_id]=$(openssl rand -hex 8)
     config_file[service_path]=$(openssl rand -hex 4)
 }
@@ -791,23 +801,23 @@ networks:
 services:
   engine:
     image: ${image[${config[core]}]}
-    $([[ ${config[security]} == 'reality' || ${config[security]} == 'notls' || ${config[protocol]} == 'hysteria2' ]] && echo "ports:" || true)
-    $([[ ${config[security]} == 'reality' && ${config[port]} -eq 443 ]] && echo '- 80:8080' || true)
-    $([[ ${config[security]} == 'reality' || ${config[security]} == 'notls' ]] && echo "- ${config[port]}:8443" || true)
-    $([[ ${config[protocol]} == 'hysteria2' ]] && echo "- ${config[port]}:8443/udp" || true)
-    $([[ ${config[protocol]} == 'hysteria2' && ${config[security]} == 'letsencrypt' ]] && echo "- 80:8080" || true)
-    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[protocol]} != 'hysteria2' ]] && echo "expose:" || true)
-    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[protocol]} != 'hysteria2' ]] && echo "- 8443" || true)
+    $([[ ${config[security]} == 'reality' || ${config[transport]} == 'shadowtls' || ${config[security]} == 'notls' ]] && echo "ports:" || true)
+    $([[ (${config[security]} == 'reality' || ${config[transport]} == 'shadowtls') && ${config[port]} -eq 443 ]] && echo '- 80:8080' || true)
+    $([[ ${config[security]} == 'reality' || ${config[transport]} == 'shadowtls' || ${config[security]} == 'notls' ]] && echo "- ${config[port]}:8443" || true)
+    $([[ ${config[transport]} == 'tuic' || ${config[transport]} == 'hysteria2' ]] && echo "ports:" || true)
+    $([[ ${config[transport]} == 'tuic' || ${config[transport]} == 'hysteria2' ]] && echo "- ${config[port]}:8443/udp" || true)
+    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[transport]} != 'shadowtls' && ${config[transport]} != 'hysteria2' && ${config[transport]} != 'tuic' ]] && echo "expose:" || true)
+    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[transport]} != 'shadowtls' && ${config[transport]} != 'hysteria2' && ${config[transport]} != 'tuic' ]] && echo "- 8443" || true)
     restart: always
     environment:
       TZ: Etc/UTC
     volumes:
     - ./${path[engine]#${config_path}/}:/etc/${config[core]}/config.json
-    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' ]] && { [[ ${config[transport]} == 'http' ]] || [[ ${config[transport]} == 'tcp' ]] || [[ ${config[protocol]} == 'hysteria2' ]]; } && echo "- ./${path[server_crt]#${config_path}/}:/etc/${config[core]}/server.crt" || true)
-    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' ]] && { [[ ${config[transport]} == 'http' ]] || [[ ${config[transport]} == 'tcp' ]] || [[ ${config[protocol]} == 'hysteria2' ]]; } && echo "- ./${path[server_key]#${config_path}/}:/etc/${config[core]}/server.key" || true)
+    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' ]] && { [[ ${config[transport]} == 'http' ]] || [[ ${config[transport]} == 'tcp' ]] || [[ ${config[transport]} == 'tuic' ]] || [[ ${config[transport]} == 'hysteria2' ]]; } && echo "- ./${path[server_crt]#${config_path}/}:/etc/${config[core]}/server.crt" || true)
+    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' ]] && { [[ ${config[transport]} == 'http' ]] || [[ ${config[transport]} == 'tcp' ]] || [[ ${config[transport]} == 'tuic' ]] || [[ ${config[transport]} == 'hysteria2' ]]; } && echo "- ./${path[server_key]#${config_path}/}:/etc/${config[core]}/server.key" || true)
     networks:
     - reality
-$(if [[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[protocol]} != 'hysteria2' ]]; then
+$(if [[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[transport]} != 'shadowtls' && ${config[transport]} != 'hysteria2' && ${config[transport]} != 'tuic' ]]; then
 echo "
   nginx:
     image: ${image[nginx]}
@@ -830,7 +840,7 @@ echo "
     networks:
     - reality"
 fi)
-$(if [[ ${config[security]} == 'letsencrypt' ]]; then
+$(if [[ ${config[security]} == 'letsencrypt' && ${config[transport]} != 'shadowtls' ]]; then
 echo "
   certbot:
     build:
@@ -909,16 +919,16 @@ $(if [[ ${config[transport]} != 'tcp' ]]; then echo "
 $(if [[ ${config[security]} == 'letsencrypt' ]]; then echo "
   use_backend certbot if { path_beg /.well-known/acme-challenge }
 "; fi)
-echo "
+$(if [[ ${config[transport]} != 'tuic' && ${config[transport]} != 'hysteria2' ]]; then echo "
   use_backend engine if { path_beg /${config[service_path]} }
-")
+"; fi)
   use_backend default
 "; else echo "
   bind :::8443 v4v6
   mode tcp
   use_backend engine
 "; fi)
-$(if true; then echo "
+$(if [[ ${config[transport]} != 'tuic' && ${config[transport]} != 'hysteria2' ]]; then echo "
 backend engine
   retry-on conn-failure empty-response response-timeout
 $(if [[ ${config[transport]} != 'tcp' ]]; then echo "
@@ -928,7 +938,9 @@ $(if [[ ${config[transport]} != 'tcp' ]]; then echo "
 "; fi)
 $(if [[ ${config[transport]} == 'grpc' ]]; then echo "
   server engine engine:8443 check tfo proto h2
-"; elif [[ ${config[transport]} == 'http' ]]; then echo "
+"; elif [[ ${config[transport]} == 'http' && ${config[core]} == 'sing-box' ]]; then echo "
+  server engine engine:8443 check tfo proto h2 ssl verify none
+"; elif [[ ${config[transport]} == 'http' && ${config[core]} != 'sing-box' ]]; then echo "
   server engine engine:8443 check tfo ssl verify none
 "; else echo "
   server engine engine:8443 check tfo
@@ -1036,30 +1048,252 @@ function generate_selfsigned_certificate {
 }
 
 function generate_engine_config {
+  local type="vless"
   local users_object=""
   local reality_object=""
   local tls_object=""
   local warp_object=""
   local reality_port=443
   local temp_file
-
-  if [[ ${config[security]} == 'reality' && ${config[domain]} =~ ":" ]]; then
+  if [[ ${config[transport]} == 'tuic' ]]; then
+    type='tuic'
+  elif [[ ${config[transport]} == 'hysteria2' ]]; then
+    type='hysteria2'
+  elif [[ ${config[transport]} == 'shadowtls' ]]; then
+    type='shadowtls'
+  else
+    type='vless'
+  fi
+  if [[ (${config[security]} == 'reality' || ${config[transport]} == 'shadowtls') && ${config[domain]} =~ ":" ]]; then
     reality_port="${config[domain]#*:}"
   fi
+  if [[ ${config[core]} == 'sing-box' ]]; then
+    reality_object='"tls": {
+      "enabled": true,
+      "server_name": "'"${config[domain]%%:*}"'",
+      "alpn": [],
+      "reality": {
+        "enabled": true,
+        "handshake": {
+          "server": "'"${config[domain]%%:*}"'",
+          "server_port": '"${reality_port}"'
+        },
+        "private_key": "'"${config[private_key]}"'",
+        "short_id": ["'"${config[short_id]}"'"],
+        "max_time_difference": "1m"
+      }
+    }'
+    tls_object='"tls": {
+      "enabled": true,
+      "server_name": "'"${config[server]}"'",
+      "certificate_path": "/etc/sing-box/server.crt",
+      "key_path": "/etc/sing-box/server.key"
+    }'
+    if [[ ${config[warp]} == 'ON' ]]; then
+      warp_object='{
+        "type": "wireguard",
+        "tag": "warp",
+        "address": [
+          "'"${config[warp_interface_ipv4]}"'/32",
+          "'"${config[warp_interface_ipv6]}"'/128"
+        ],
+        "private_key": "'"${config[warp_private_key]}"'",
+        "peers": [{
+          "address": "engage.cloudflareclient.com",
+          "port": 2408,
+          "public_key": "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
+          "reserved": '"$(warp_decode_reserved "${config[warp_client_id]}")"',
+          "allowed_ips": ["0.0.0.0/0", "::/0"]
+        }],
+        "mtu": 1280
+      }'
+    fi
+    for user in "${!users[@]}"; do
+      if [ -n "$users_object" ]; then
+        users_object="${users_object},"$'\n'
+      fi
+      if [[ ${config[transport]} == 'tuic' ]]; then
+        users_object=${users_object}'{"uuid": "'"${users[${user}]}"'", "password": "'"$(echo -n "${user}${users[${user}]}" | sha256sum | cut -d ' ' -f 1 | head -c 16)"'", "name": "'"${user}"'"}'
+      elif [[ ${config[transport]} == 'hysteria2' ]]; then
+        users_object=${users_object}'{"password": "'"$(echo -n "${user}${users[${user}]}" | sha256sum | cut -d ' ' -f 1 | head -c 16)"'", "name": "'"${user}"'"}'
+      elif [[ ${config[transport]} == 'shadowtls' ]]; then
+        users_object=${users_object}'{"password": "'"${users[${user}]}"'", "name": "'"${user}"'"}'
+      else
+        users_object=${users_object}'{"uuid": "'"${users[${user}]}"'", "flow": "'"$([[ ${config[transport]} == 'tcp' ]] && echo 'xtls-rprx-vision' || true)"'", "name": "'"${user}"'"}'
+      fi
+    done
+    cat >"${path[engine]}" <<EOF
+{
+  "log": {
+    "level": "error",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+    $([[ ${config[safenet]} == ON ]] && echo '{"type": "tcp", "server": "1.1.1.3", "tag": "dns-safe"},{"type": "tcp", "server": "1.0.0.3", "tag": "dns-safe2"}' || echo '{"type": "tcp", "server": "1.1.1.1", "tag": "dns-main"},{"type": "tcp", "server": "1.0.0.1", "tag": "dns-main2"}')
+    ]
+  },
+  "inbounds": [
+    {
+      "type": "direct",
+      "listen": "::",
+      "listen_port": 8080,
+      "network": "tcp",
+      "override_address": "${config[domain]%%:*}",
+      "override_port": 80
+    },
+    {
+      "type": "${type}",
+      "tag": "inbound",
+      "listen": "::",
+      "listen_port": 8443,
+      "users": [${users_object}],
+      $(if [[ ${config[security]} == 'reality' && ${config[transport]} != 'shadowtls' ]]; then
+        echo "${reality_object}"
+      elif [[ ${config[security]} == 'notls' ]]; then
+        echo '"tls":{"enabled": false}'
+      elif [[ ${config[transport]} == 'tuic' || ${config[transport]} == 'hysteria2' ]]; then
+        echo "${tls_object},"
+      elif [[ ${config[transport]} == 'http' || ${config[transport]} == 'tcp' ]]; then
+        echo "${tls_object}"
+      elif [[ ${config[transport]} == 'shadowtls' ]]; then
+        :
+      else
+        echo '"tls":{"enabled": false}'
+      fi)
+      $(if [[ ${config[transport]} == http ]]; then
+      echo ',"transport": {"type": "http", "host": ["'"${config[server]}"'"], "path": "/'"${config[service_path]}"'"}'
+      fi
+      if [[ ${config[transport]} == grpc ]]; then
+      echo ',"transport": {"type": "grpc","service_name": "'"${config[service_path]}"'"}'
+      fi 
+      if [[ ${config[transport]} == ws ]]; then
+      echo ',"transport": {"type": "ws", "headers": {"Host": "'"${config[host_header]}"'"}, "path": "/'"${config[service_path]}"'"}'
+      fi
+      if [[ ${config[transport]} == tuic ]]; then
+      echo '"congestion_control": "bbr", "auth_timeout": "3s", "zero_rtt_handshake": false, "heartbeat": "10s"'
+      fi
+      if [[ ${config[transport]} == hysteria2 ]]; then
+      echo '"obfs": {"type": "salamander", "password": "'"${config[service_path]}"'"}, "ignore_client_bandwidth": true, "masquerade": "https://www.bing.com"'
+      fi
+      if [[ ${config[transport]} == shadowtls ]]; then
+      echo '"version": 3, "strict_mode": false, "detour": "shadowsocks", "handshake": {"server": "'"${config[domain]%%:*}"'", "server_port": '"${reality_port}"'}'
+      fi
+      )
+    }
+    $(if [[ ${config[transport]} == 'shadowtls' ]]; then
+    echo ', {
+      "type": "shadowsocks",
+      "tag": "shadowsocks",
+      "listen": "127.0.0.1",
+      "listen_port": 8444,
+      "method": "chacha20-ietf-poly1305",
+      "password": "'"${config[private_key]}"'",
+      "users": ['"${users_object}"']
+    }'
+    fi )
+  ],
+  $([[ ${config[warp]} == ON ]] && echo '"endpoints": [' || true)
+  $([[ ${config[warp]} == ON ]] && echo "${warp_object}" || true)
+  $([[ ${config[warp]} == ON ]] && echo '],' || true)
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "internet"
+    }
+  ],
+  "route": {
+    "final": "$([[ ${config[warp]} == ON ]] && echo "warp" || echo "internet")",
+    "default_domain_resolver": "$([[ ${config[safenet]} == ON ]] && echo 'dns-safe' || echo 'dns-main')",
+    "rules": [
+      {
+        "inbound": "inbound",
+        "action": "sniff"
+      },
+      {
+        "inbound": "inbound",
+        "action": "resolve",
+        "strategy": "prefer_ipv4"
+      }
+      $(if [[ ${config[warp]} == OFF ]]; then echo ',
+      {
+        "rule_set": ["bypass"],
+        "action": "reject"
+      }'; fi)
+      $(if [[ ${config[safenet]} == ON ]]; then echo ',
+      {
+        "rule_set": ["nsfw"],
+        "action": "reject"
+      }'; fi)
+      ,{
+        "rule_set": ["block", "geoip-private", "geosite-private"],
+        "action": "reject"
+      },
+      {
+        "network": "tcp",
+        "port": [25, 587, 465, 2525],
+        "action": "reject"
+      }
+    ],
+    "rule_set": [
+      {
+        "tag": "block",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/aleskxyz/sing-box-rules/refs/heads/rule-set/block.srs",
+        "download_detour": "internet"
+      },
+      {
+        "tag": "nsfw",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/aleskxyz/sing-box-rules/refs/heads/rule-set/geosite-nsfw.srs",
+        "download_detour": "internet"
+      },
+      {
+        "tag": "geoip-private",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/aleskxyz/sing-box-rules/refs/heads/rule-set/geoip-private.srs",
+        "download_detour": "internet"
+      },
+      {
+        "tag": "geosite-private",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/aleskxyz/sing-box-rules/refs/heads/rule-set/geosite-private.srs",
+        "download_detour": "internet"
+      },
+      {
+        "tag": "bypass",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/aleskxyz/sing-box-rules/refs/heads/rule-set/bypass.srs",
+        "download_detour": "internet"
+      }
+    ],
 
-  reality_object='"security":"reality",
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true
+    }
+  }
+}
+EOF
+  fi
+  if [[ ${config[core]} == 'xray' ]]; then
+    reality_object='"security":"reality",
     "realitySettings":{
       "show": false,
       "dest": "'"${config[domain]%%:*}"':'"${reality_port}"'",
       "xver": 0,
       "serverNames": ["'"${config[domain]%%:*}"'"],
-      "privateKey": "'"${config[private_key]}'"',
+      "privateKey": "'"${config[private_key]}"'",
       "maxTimeDiff": 60000,
-      "shortIds": ["'"${config[short_id]}'"']
+      "shortIds": ["'"${config[short_id]}"'"]
     }'
-
-  # TLS объект для VLESS (tcp/http с TLS)
-  tls_object='"security": "tls",
+    tls_object='"security": "tls",
     "tlsSettings": {
       "certificates": [{
         "oneTimeLoading": true,
@@ -1067,142 +1301,69 @@ function generate_engine_config {
         "keyFile": "/etc/xray/server.key"
       }]
     }'
-
-  if [[ ${config[warp]} == 'ON' ]]; then
-    warp_object='{
+    if [[ ${config[warp]} == 'ON' ]]; then
+      warp_object='{
         "protocol": "wireguard",
         "tag": "warp",
         "settings": {
-          "secretKey": "'"${config[warp_private_key]}'"',
+          "secretKey": "'"${config[warp_private_key]}"'",
           "address": [
-            "'"${config[warp_interface_ipv4]}'"'/32",
-            "'"${config[warp_interface_ipv6]}'"'/128"
+            "'"${config[warp_interface_ipv4]}"'/32",
+            "'"${config[warp_interface_ipv6]}"'/128"
           ],
-          "peers": [{
-            "endpoint": "engage.cloudflareclient.com:2408",
-            "publicKey": "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo="
-          }],
+          "peers": [
+            {
+              "endpoint": "engage.cloudflareclient.com:2408",
+              "publicKey": "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo="
+            }
+          ],
           "mtu": 1280
         }
       },'
-  fi
-
-  # ── Hysteria 2 — QUIC/UDP ──────────────────────────────────────────────
-  if [[ ${config[protocol]} == 'hysteria2' ]]; then
-    for user in "${!users[@]}"; do
-      if [ -n "$users_object" ]; then
-        users_object="${users_object},"$'\n'
-      fi
-      users_object="${users_object}"'{"auth": "'"$(echo -n "${user}${users[${user}]}" | sha256sum | cut -d ' ' -f 1 | head -c 16)"'", "email": "'"${user}"'"}'
-    done
-
-    # Сертификат для hysteria2:
-    # - selfsigned: из /etc/xray/server.crt + server.key
-    # - letsencrypt: через certbot (certbot_startup пишет сертификат в certificate/)
-    # SNI указывается только клиентом, сервер его не настраивает
-    local hy2_tls
-    if [[ ${config[security]} == 'notls' ]]; then
-      hy2_tls='"security": "none"'
-    else
-      hy2_tls='"security": "tls",
-        "tlsSettings": {
-          "certificates": [{
-            "oneTimeLoading": true,
-            "certificateFile": "/etc/xray/server.crt",
-            "keyFile": "/etc/xray/server.key"
-          }]
-        }'
     fi
-
-    cat >"${path[engine]}" <<XEOF
-{
-  "log": {"loglevel": "error"},
-  "dns": {
-    "servers": [$([[ ${config[safenet]} == ON ]] && echo '"tcp+local://1.1.1.3","tcp+local://1.0.0.3"' || echo '"tcp+local://1.1.1.1","tcp+local://1.0.0.1"')]
-  },
-  "inbounds": [{
-    "listen": "0.0.0.0",
-    "port": 8443,
-    "protocol": "hysteria2",
-    "tag": "inbound",
-    "settings": {
-      "version": 2,
-      "clients": [${users_object}]
-    },
-    "streamSettings": {
-      "network": "hysteria2",
-      ${hy2_tls},
-      "hysteriaSettings": {
-        "version": 2,
-        "udpIdleTimeout": 60
-      }
-    }
-  }],
-  "outbounds": [
-    {"protocol": "freedom", "tag": "internet"},
-    $([[ ${config[warp]} == ON ]] && echo "${warp_object}" || true)
-    {"protocol": "blackhole", "tag": "block"}
-  ],
-  "routing": {
-    "domainStrategy": "IPIfNonMatch",
-    "rules": [
-      {"type": "field", "ip": [
-          $([[ ${config[warp]} == OFF ]] && echo '"geoip:cn", "geoip:ir",')
-          "0.0.0.0/8","10.0.0.0/8","100.64.0.0/10","127.0.0.0/8","169.254.0.0/16",
-          "172.16.0.0/12","192.0.0.0/24","192.0.2.0/24","192.168.0.0/16",
-          "198.18.0.0/15","198.51.100.0/24","203.0.113.0/24",
-          "::1/128","fc00::/7","fe80::/10","geoip:private"
-        ], "outboundTag": "block"},
-      {"type": "field", "port": "25, 587, 465, 2525", "network": "tcp", "outboundTag": "block"},
-      {"type": "field", "protocol": ["bittorrent"], "outboundTag": "block"},
-      {"type": "field", "outboundTag": "block", "domain": [
-          $([[ ${config[safenet]} == ON ]] && echo '"geosite:category-porn",' || true)
-          "geosite:category-ads-all",
-          "domain:pushnotificationws.com","domain:sunlight-leds.com","domain:icecyber.org"
-        ]},
-      {"type": "field", "inboundTag": "inbound",
-        "outboundTag": "$([[ ${config[warp]} == ON ]] && echo "warp" || echo "internet")"}
-    ]
-  },
-  "policy": {"levels": {"0": {"handshake": 2, "connIdle": 120}}}
-}
-XEOF
-
-  else
-    # ── VLESS — tcp / http / grpc / ws / xhttp ─────────────────────────────
     for user in "${!users[@]}"; do
       if [ -n "$users_object" ]; then
         users_object="${users_object},"$'\n'
       fi
-      users_object="${users_object}"'{"id": "'"${users[${user}]}'"', "flow": "'"$([[ ${config[transport]} == 'tcp' ]] && echo 'xtls-rprx-vision' || true)'"', "email": "'"${user}"'"}'
+      users_object=${users_object}'{"id": "'"${users[${user}]}"'", "flow": "'"$([[ ${config[transport]} == 'tcp' ]] && echo 'xtls-rprx-vision' || true)"'", "email": "'"${user}"'"}'
     done
-
-    cat >"${path[engine]}" <<XEOF
+    cat >"${path[engine]}" <<EOF
 {
-  "log": {"loglevel": "error"},
+  "log": {
+    "loglevel": "error"
+  },
   "dns": {
     "servers": [$([[ ${config[safenet]} == ON ]] && echo '"tcp+local://1.1.1.3","tcp+local://1.0.0.3"' || echo '"tcp+local://1.1.1.1","tcp+local://1.0.0.1"')]
   },
   "inbounds": [
     {
-      "listen": "0.0.0.0", "port": 8080, "protocol": "dokodemo-door",
-      "settings": {"address": "${config[domain]%%:*}", "port": 80, "network": "tcp"}
+      "listen": "0.0.0.0",
+      "port": 8080,
+      "protocol": "dokodemo-door",
+      "settings": {
+        "address": "${config[domain]%%:*}",
+        "port": 80,
+        "network": "tcp"
+      }
     },
     {
       "listen": "0.0.0.0",
       "port": 8443,
       "protocol": "vless",
       "tag": "inbound",
-      "settings": {"clients": [${users_object}], "decryption": "none"},
+      "settings": {
+        "clients": [${users_object}],
+        "decryption": "none"
+      },
       "streamSettings": {
-        $([[ ${config[transport]} == 'grpc' ]] && echo '"grpcSettings": {"serviceName": "'"${config[service_path]}'"'},' || true)
-        $([[ ${config[transport]} == 'ws'   ]] && echo '"wsSettings": {"headers": {"Host": "'"${config[host_header]:-${config[server]}}'"'"}, \"path\": \"/'"${config[service_path]}'"'"},' || true)
-        $([[ ${config[transport]} == 'http' ]] && echo '"httpSettings": {"host":["'"${config[server]}'"'"], \"path\": \"/'"${config[service_path]}'"'"},' || true)
+        $([[ ${config[transport]} == 'grpc' ]] && echo '"grpcSettings": {"serviceName": "'"${config[service_path]}"'"},' || true)
+        $([[ ${config[transport]} == 'ws' ]] && echo '"wsSettings": {"headers": {"Host": "'"${config[host_header]}"'"}, "path": "/'"${config[service_path]}"'"},' || true)
+        $([[ ${config[transport]} == 'http' ]] && echo '"httpSettings": {"host":["'"${config[server]}"'"], "path": "/'"${config[service_path]}"'"},' || true)
         $(if [[ ${config[transport]} == 'xhttp' ]]; then
-          echo '"xhttpSettings": {'
-          [[ -n ${config[host_header]} ]] && echo '"host": "'"${config[host_header]}'"'",'
-          echo '"path": "/'"${config[service_path]}'"'"'
-          echo '},'
+           echo '"xhttpSettings": {'
+           if [[ -n ${config[host_header]} ]]; then echo '"host": "'"${config[host_header]}"'",'; fi
+           echo '"path": "/'"${config[service_path]}"'"'
+           echo '},'
         fi)
         "network": "${config[transport]}",
         $(if [[ ${config[security]} == 'reality' ]]; then
@@ -1212,46 +1373,98 @@ XEOF
         elif [[ ${config[transport]} == 'http' || ${config[transport]} == 'tcp' ]]; then
           echo "${tls_object}"
         else
-          echo '"security": "none"'
+          echo '"security":"none"'
         fi)
       },
-      "sniffing": {"enabled": true, "destOverride": ["http", "tls"]}
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls"
+        ]
+      }
     }
   ],
   "outbounds": [
-    {"protocol": "freedom", "tag": "internet"},
+    {
+      "protocol": "freedom",
+      "tag": "internet"
+    },
     $([[ ${config[warp]} == ON ]] && echo "${warp_object}" || true)
-    {"protocol": "blackhole", "tag": "block"}
+    {
+      "protocol": "blackhole",
+      "tag": "block"
+    }
   ],
   "routing": {
     "domainStrategy": "IPIfNonMatch",
     "rules": [
-      {"type": "field", "ip": [
+      {
+        "type": "field",
+        "ip": [
           $([[ ${config[warp]} == OFF ]] && echo '"geoip:cn", "geoip:ir",')
-          "0.0.0.0/8","10.0.0.0/8","100.64.0.0/10","127.0.0.0/8","169.254.0.0/16",
-          "172.16.0.0/12","192.0.0.0/24","192.0.2.0/24","192.168.0.0/16",
-          "198.18.0.0/15","198.51.100.0/24","203.0.113.0/24",
-          "::1/128","fc00::/7","fe80::/10","geoip:private"
-        ], "outboundTag": "block"},
-      {"type": "field", "port": "25, 587, 465, 2525", "network": "tcp", "outboundTag": "block"},
-      {"type": "field", "protocol": ["bittorrent"], "outboundTag": "block"},
-      {"type": "field", "outboundTag": "block", "domain": [
+          "0.0.0.0/8",
+          "10.0.0.0/8",
+          "100.64.0.0/10",
+          "127.0.0.0/8",
+          "169.254.0.0/16",
+          "172.16.0.0/12",
+          "192.0.0.0/24",
+          "192.0.2.0/24",
+          "192.168.0.0/16",
+          "198.18.0.0/15",
+          "198.51.100.0/24",
+          "203.0.113.0/24",
+          "::1/128",
+          "fc00::/7",
+          "fe80::/10",
+          "geoip:private"
+        ],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "port": "25, 587, 465, 2525",
+        "network": "tcp",
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "protocol": ["bittorrent"],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "outboundTag": "block",
+        "domain": [
           $([[ ${config[safenet]} == ON ]] && echo '"geosite:category-porn",' || true)
           "geosite:category-ads-all",
-          "domain:pushnotificationws.com","domain:sunlight-leds.com","domain:icecyber.org"
-        ]},
-      {"type": "field", "inboundTag": "inbound",
-        "outboundTag": "$([[ ${config[warp]} == ON ]] && echo "warp" || echo "internet")"}
+          "domain:pushnotificationws.com",
+          "domain:sunlight-leds.com",
+          "domain:icecyber.org"
+        ]
+      },
+      {
+        "type": "field",
+        "inboundTag": "inbound",
+        "outboundTag": "$([[ ${config[warp]} == ON ]] && echo "warp" || echo "internet")"
+      }
     ]
   },
-  "policy": {"levels": {"0": {"handshake": 2, "connIdle": 120}}}
+  "policy": {
+    "levels": {
+      "0": {
+        "handshake": 2,
+        "connIdle": 120
+      }
+    }
+  }
 }
-XEOF
+EOF
   fi
-
   if [[ -r ${config_path}/${config[core]}.patch ]]; then
     if ! jq empty ${config_path}/${config[core]}.patch; then
-      echo "${config[core]}.patch не является валидным JSON. Исправьте или удалите!"
+      echo "${config[core]}.patch не является валидным JSON файлом. Исправьте или удалите его!"
       exit 1
     fi
     temp_file=$(mktemp)
@@ -1263,21 +1476,21 @@ XEOF
 function generate_config {
   generate_docker_compose
   generate_engine_config
-  if [[ ${config[security]} != "reality" && ${config[security]} != "notls" && ${config[protocol]} != 'hysteria2' ]]; then
+  if [[ ${config[security]} != "reality" && ${config[security]} != "notls" && ${config[transport]} != 'shadowtls' && ${config[transport]} != 'hysteria2' && ${config[transport]} != 'tuic' ]]; then
     mkdir -p "${config_path}/certificate"
     generate_haproxy_config
     if [[ ! -r "${path[server_pem]}" || ! -r "${path[server_crt]}" || ! -r "${path[server_key]}" ]]; then
       generate_selfsigned_certificate
     fi
   fi
-  # Для hysteria2: сертификат нужен напрямую в engine (без haproxy, UDP)
-  if [[ ${config[protocol]} == 'hysteria2' && ${config[security]} == 'selfsigned' ]]; then
+  # Для hysteria2/tuic: сертификат нужен напрямую в engine (без haproxy)
+  if [[ ${config[security]} != "reality" && ${config[security]} != "notls" && ( ${config[transport]} == 'hysteria2' || ${config[transport]} == 'tuic' ) ]]; then
     mkdir -p "${config_path}/certificate"
     if [[ ! -r "${path[server_crt]}" || ! -r "${path[server_key]}" ]]; then
       generate_selfsigned_certificate
     fi
   fi
-  if [[ ${config[security]} == "letsencrypt" ]]; then
+  if [[ ${config[security]} == "letsencrypt" && ${config[transport]} != 'shadowtls' ]]; then
     mkdir -p "${config_path}/certbot"
     generate_certbot_deployhook
     generate_certbot_dockerfile
@@ -1298,21 +1511,27 @@ function get_ipv6 {
 function print_client_configuration {
   local username=$1
   local client_config
-  local hy2_params
   local ipv6
   local client_config_ipv6
-
-  if [[ ${config[protocol]} == 'hysteria2' ]]; then
-    # hy2://password@server:port/?sni=domain&insecure=1
-    local hy2_sni="${config[domain]:-${config[server]}}"
-    hy2_params="sni=${hy2_sni}"
-    [[ ${config[security]} == 'selfsigned' ]] && hy2_params="${hy2_params}&insecure=1"
+  if [[ ${config[transport]} == 'tuic' ]]; then
+    client_config="tuic://"
+    client_config="${client_config}${users[${username}]}"
+    client_config="${client_config}:$(echo -n "${username}${users[${username}]}" | sha256sum | cut -d ' ' -f 1 | head -c 16)"
+    client_config="${client_config}@${config[server]}"
+    client_config="${client_config}:${config[port]}"
+    client_config="${client_config}/?congestion_control=bbr&udp_relay_mode=quic"
+    client_config="${client_config}$([[ ${config[security]} == 'selfsigned' ]] && echo "&allow_insecure=1" || true)"
+    client_config="${client_config}#${username}"
+  elif [[ ${config[transport]} == 'hysteria2' ]]; then
     client_config="hy2://"
     client_config="${client_config}$(echo -n "${username}${users[${username}]}" | sha256sum | cut -d ' ' -f 1 | head -c 16)"
     client_config="${client_config}@${config[server]}"
     client_config="${client_config}:${config[port]}"
-    client_config="${client_config}/?${hy2_params}"
+    client_config="${client_config}/?obfs=salamander&obfs-password=${config[service_path]}"
+    client_config="${client_config}$([[ ${config[security]} == 'selfsigned' ]] && echo "&insecure=1" || true)"
     client_config="${client_config}#${username}"
+  elif [[ ${config[transport]} == 'shadowtls' ]]; then
+    client_config='{"dns":{"independent_cache":true,"rules":[{"domain":["dns.google"],"server":"dns-direct"}],"servers":[{"address":"https://dns.google/dns-query","address_resolver":"dns-direct","strategy":"ipv4_only","tag":"dns-remote"},{"address":"local","address_resolver":"dns-local","detour":"direct","strategy":"ipv4_only","tag":"dns-direct"},{"address":"local","detour":"direct","tag":"dns-local"},{"address":"rcode://success","tag":"dns-block"}]},"inbounds":[{"listen":"127.0.0.1","listen_port":6450,"override_address":"8.8.8.8","override_port":53,"tag":"dns-in","type":"direct"},{"domain_strategy":"","endpoint_independent_nat":true,"inet4_address":["172.19.0.1/28"],"mtu":9000,"sniff":true,"sniff_override_destination":false,"stack":"mixed","tag":"tun-in","auto_route":true,"type":"tun"},{"domain_strategy":"","listen":"127.0.0.1","listen_port":2080,"sniff":true,"sniff_override_destination":false,"tag":"mixed-in","type":"mixed"}],"log":{"level":"warning"},"outbounds":[{"method":"chacha20-ietf-poly1305","password":"'"${users[${username}]}"'","server":"127.0.0.1","server_port":1080,"type":"shadowsocks","udp_over_tcp":true,"domain_strategy":"","tag":"proxy","detour":"shadowtls"},{"password":"'"${users[${username}]}"'","server":"'"${config[server]}"'","server_port":'"${config[port]}"',"tls":{"enabled":true,"insecure":false,"server_name":"'"${config[domain]%%:*}"'","utls":{"enabled":true,"fingerprint":"chrome"}},"version":3,"type":"shadowtls","domain_strategy":"","tag":"shadowtls"},{"tag":"direct","type":"direct"},{"tag":"bypass","type":"direct"},{"tag":"block","type":"block"},{"tag":"dns-out","type":"dns"}],"route":{"auto_detect_interface":true,"rule_set":[],"rules":[{"outbound":"dns-out","port":[53]},{"inbound":["dns-in"],"outbound":"dns-out"},{"ip_cidr":["224.0.0.0/3","ff00::/8"],"outbound":"block","source_ip_cidr":["224.0.0.0/3","ff00::/8"]}]}}'
   else
     client_config="vless://"
     client_config="${client_config}${users[${username}]}"
@@ -1322,10 +1541,12 @@ function print_client_configuration {
     client_config="${client_config}&encryption=none"
     client_config="${client_config}&headerType=none"
     client_config="${client_config}&type=${config[transport]}"
+    # TLS-специфичные параметры — только при наличии TLS-слоя
     if [[ ${config[security]} != 'notls' ]]; then
       client_config="${client_config}&alpn=$([[ ${config[transport]} == 'ws' ]] && echo 'http/1.1' || echo 'h2,http/1.1')"
       client_config="${client_config}&fp=chrome"
       client_config="${client_config}&sni=${config[domain]%%:*}"
+      # flow только для tcp+tls/reality
       if [[ ${config[transport]} == 'tcp' ]]; then
         client_config="${client_config}&flow=xtls-rprx-vision"
       fi
@@ -1334,14 +1555,13 @@ function print_client_configuration {
     client_config="${client_config}$([[ ${config[security]} == 'reality' ]] && echo "&sid=${config[short_id]}" || true)"
     client_config="${client_config}$([[ ${config[transport]} == 'ws' || ${config[transport]} == 'http' || ${config[transport]} == 'xhttp' ]] && echo "&path=%2F${config[service_path]}" || true)"
     client_config="${client_config}$([[ ${config[transport]} == 'xhttp' && -n ${config[host_header]} ]] && echo "&host=${config[host_header]}" || true)"
-    client_config="${client_config}$([[ ${config[transport]} == 'ws'   ]] && echo "&host=${config[host_header]:-${config[server]}}" || true)"
+    client_config="${client_config}$([[ ${config[transport]} == 'ws' ]] && echo "&host=${config[host_header]:-${config[server]}}" || true)"
     client_config="${client_config}$([[ ${config[transport]} == 'http' ]] && echo "&host=${config[host_header]:-${config[server]}}" || true)"
     client_config="${client_config}$([[ ${config[transport]} == 'xhttp' ]] && echo '&mode=auto' || true)"
-    client_config="${client_config}$([[ ${config[transport]} == 'grpc'  ]] && echo '&mode=gun' || true)"
-    client_config="${client_config}$([[ ${config[transport]} == 'grpc'  ]] && echo "&serviceName=${config[service_path]}" || true)"
+    client_config="${client_config}$([[ ${config[transport]} == 'grpc' ]] && echo '&mode=gun' || true)"
+    client_config="${client_config}$([[ ${config[transport]} == 'grpc' ]] && echo "&serviceName=${config[service_path]}" || true)"
     client_config="${client_config}#${username}"
   fi
-
   echo ""
   echo "=================================================="
   echo "Конфигурация клиента:"
@@ -1351,10 +1571,13 @@ function print_client_configuration {
   echo "Или вы можете отсканировать QR код:"
   echo ""
   qrencode -t ansiutf8 "${client_config}"
-
   ipv6=$(get_ipv6)
   if [[ -n $ipv6 ]]; then
-    client_config_ipv6=$(echo "$client_config" | sed "s/@${config[server]}:/@[${ipv6}]:/" | sed "s/#${username}/#${username}-ipv6/")
+    if [[ ${config[transport]} != 'shadowtls' ]]; then
+      client_config_ipv6=$(echo "$client_config" | sed "s/@${config[server]}:/@[${ipv6}]:/" | sed "s/#${username}/#${username}-ipv6/")
+    else
+      client_config_ipv6=$(echo "$client_config" | sed "s/\"server\":\"${config[server]}\"/\"server\":\"${ipv6}\"/")
+    fi
     echo ""
     echo "==================IPv6 Конфиг======================"
     echo "Конфигурация клиента:"
@@ -1382,15 +1605,13 @@ function upgrade {
     sed -i 's|=true|=ON|g; s|=false|=OFF|g' "${path[users]}"
   fi
   rm -f "${config_path}/xray.conf"
+  rm -f "${config_path}/singbox.conf"
   if ! ${docker_cmd} ls | grep ${compose_project} >/dev/null && [[ -r ${path[compose]} ]]; then
     ${docker_cmd} --project-directory ${config_path} down --remove-orphans --timeout 2
   fi
   if [[ -r ${path[config]} ]]; then
     sed -i 's|transport=h2|transport=http|g' "${path[config]}"
-    # Миграция: добавить protocol если отсутствует
-    if ! grep -q '^protocol=' "${path[config]}" 2>/dev/null; then
-      echo 'protocol=vless' >> "${path[config]}"
-    fi
+    sed -i 's|core=singbox|core=sing-box|g' "${path[config]}"
     sed -i 's|security=tls-invalid|security=selfsigned|g' "${path[config]}"
     sed -i 's|security=tls-valid|security=letsencrypt|g' "${path[config]}"
   fi
@@ -1523,36 +1744,70 @@ function view_user_menu {
         return 0
       fi
     fi
+    if [[ ${config[transport]} == 'tuic' ]]; then
+      user_config=$(echo "
+Протокол: tuic
+Примечание: ${username}
+Адрес: ${config[server]}
+Порт: ${config[port]}
+UUID: ${users[$username]}
+Пароль: $(echo -n "${username}${users[${username}]}" | sha256sum | cut -d ' ' -f 1 | head -c 16)
+Режим реле UDP: quic
+Контроль перегрузки: bbr
+      " | tr -s '\n')
+    elif [[ ${config[transport]} == 'hysteria2' ]]; then
+      user_config=$(echo "
+Протокол: hysteria2
+Примечание: ${username}
+Адрес: ${config[server]}
+Порт: ${config[port]}
+Пароль: $(echo -n "${username}${users[${username}]}" | sha256sum | cut -d ' ' -f 1 | head -c 16)
+Тип OBFS: salamander
+Пароль OBFS: ${config[service_path]}
+      " | tr -s '\n')
+    elif [[ ${config[transport]} == 'shadowtls' ]]; then
+      user_config=$(echo "
+=== Первый элемент цепочки прокси ===
+Протокол: shadowtls
+Примечание: ${username}-shadowtls
+Адрес: ${config[server]}
+Порт: ${config[port]}
+Пароль: ${users[$username]}
+Версия протокола: 3
+SNI: ${config[domain]%%:*}
+Отпечаток: chrome
+=== Второй элемент цепочки прокси ===
+Протокол: shadowsocks
+Примечание: ${username}-shadowsocks
+Адрес: 127.0.0.1
+Порт: 1080
+Пароль: ${users[$username]}
+Метод шифрования: chacha20-ietf-poly1305
+UDP через TCP: true
 
-    if [[ ${config[protocol]} == 'hysteria2' ]]; then
-      user_config=$(printf '%s\n' \
-        "Протокол: hysteria2 (QUIC/UDP)" \
-        "Примечание: ${username}" \
-        "Адрес: ${config[server]}" \
-        "Порт: ${config[port]}" \
-        "Пароль: $(echo -n "${username}${users[${username}]}" | sha256sum | cut -d ' ' -f 1 | head -c 16)" \
-        "SNI: ${config[domain]:-${config[server]}}" \
-        "Безопасность: ${config[security]}" \
-        "$([[ ${config[security]} == 'selfsigned' ]] && echo 'insecure=1 (самоподписанный)' || true)")
+      " | tr -s '\n')
     else
-      user_config=$(printf '%s\n' \
-        "Протокол: vless" \
-        "Примечание: ${username}" \
-        "Адрес: ${config[server]}" \
-        "Порт: ${config[port]}" \
-        "ID: ${users[$username]}" \
-        "Flow: $([[ ${config[transport]} == 'tcp' ]] && echo 'xtls-rprx-vision' || echo '-')" \
-        "Транспорт: ${config[transport]}" \
-        "$([[ ${config[transport]} == 'ws' || ${config[transport]} == 'http' ]] && echo "Host: ${config[server]}" || true)" \
-        "$([[ ${config[transport]} == 'ws' || ${config[transport]} == 'http' || ${config[transport]} == 'xhttp' ]] && echo "Путь: /${config[service_path]}" || true)" \
-        "$([[ ${config[transport]} == 'xhttp' ]] && echo "Режим: auto" || true)" \
-        "$([[ ${config[transport]} == 'grpc'  ]] && echo "gRPC service: ${config[service_path]}" || true)" \
-        "TLS: $([[ ${config[security]} == 'reality' ]] && echo 'reality' || { [[ ${config[security]} == 'notls' ]] && echo 'none' || echo 'tls'; })" \
-        "SNI: ${config[domain]%%:*}" \
-        "$([[ ${config[security]} == 'reality' ]] && echo "PublicKey: ${config[public_key]}" || true)" \
-        "$([[ ${config[security]} == 'reality' ]] && echo "ShortId: ${config[short_id]}" || true)")
+      user_config=$(echo "
+Протокол: vless
+Примечание: ${username}
+Адрес: ${config[server]}
+Порт: ${config[port]}
+ID: ${users[$username]}
+Flow: $([[ ${config[transport]} == 'tcp' ]] && echo 'xtls-rprx-vision' || true)
+Сеть: ${config[transport]}
+$([[ ${config[transport]} == 'ws' || ${config[transport]} == 'http' ]] && echo "Заголовок Host: ${config[server]}" || true)
+$([[ ${config[transport]} == 'ws' || ${config[transport]} == 'http' || ${config[transport]} == 'xhttp' ]] && echo "Путь: /${config[service_path]}" || true)
+$([[ ${config[transport]} == 'xhttp' ]] && echo "Режим: auto" || true)
+$([[ ${config[transport]} == 'grpc' ]] && echo 'Режим gRPC: gun' || true)
+$([[ ${config[transport]} == 'grpc' ]] && echo 'gRPC serviceName: '"${config[service_path]}" || true)
+TLS: $([[ ${config[security]} == 'reality' ]] && echo 'reality' || { [[ ${config[security]} == 'notls' ]] && echo 'none' || echo 'tls'; })
+SNI: ${config[domain]%%:*}
+ALPN: $([[ ${config[transport]} == 'ws' ]] && echo 'http/1.1' || echo 'h2,http/1.1')
+Отпечаток: chrome
+$([[ ${config[security]} == 'reality' ]] && echo "PublicKey: ${config[public_key]}" || true)
+$([[ ${config[security]} == 'reality' ]] && echo "ShortId: ${config[short_id]}" || true)
+      " | tr -s '\n')
     fi
-
     whiptail \
       --clear \
       --backtitle "$BACKTITLE" \
@@ -1592,31 +1847,20 @@ function list_users_menu {
 
 function show_server_config {
   local server_config
-  server_config="Протокол: ${config[protocol]}"
-  server_config="${server_config}
-Адрес сервера: ${config[server]}"
-  server_config="${server_config}
-Порт: ${config[port]}"
-  if [[ ${config[protocol]} == 'vless' ]]; then
-    server_config="${server_config}
-Транспорт: ${config[transport]}"
-    server_config="${server_config}
-Путь: /${config[service_path]}"
-    server_config="${server_config}
-Host: ${config[host_header]}"
-  fi
-  server_config="${server_config}
-Безопасность: ${config[security]}"
-  server_config="${server_config}
-SNI: ${config[domain]:-${config[server]}}"
-  server_config="${server_config}
-SafeNet: ${config[safenet]}"
-  server_config="${server_config}
-WARP: ${config[warp]}"
-  server_config="${server_config}
-Лицензия WARP: ${config[warp_license]}"
-  server_config="${server_config}
-Telegram Бот: ${config[tgbot]}"
+  server_config="Ядро: ${config[core]}"
+  server_config=$server_config$'\n'"Адрес сервера: ${config[server]}"
+  server_config=$server_config$'\n'"SNI Домен: ${config[domain]}"
+  server_config=$server_config$'\n'"Порт: ${config[port]}"
+  server_config=$server_config$'\n'"Транспорт: ${config[transport]}"
+  server_config=$server_config$'\n'"Путь (Path): /${config[service_path]}"
+  server_config=$server_config$'\n'"Заголовок Host: ${config[host_header]}"
+  server_config=$server_config$'\n'"Безопасность: ${config[security]}"
+  server_config=$server_config$'\n'"SafeNet: ${config[safenet]}"
+  server_config=$server_config$'\n'"WARP: ${config[warp]}"
+  server_config=$server_config$'\n'"Лицензия WARP: ${config[warp_license]}"
+  server_config=$server_config$'\n'"Telegram Бот: ${config[tgbot]}"
+  server_config=$server_config$'\n'"Токен Telegram Бота: ${config[tgbot_token]}"
+  server_config=$server_config$'\n'"Админы Telegram Бота: ${config[tgbot_admins]}"
   echo "${server_config}"
 }
 
@@ -1683,15 +1927,15 @@ function configuration_menu {
   while true; do
     selection=$(whiptail --clear --backtitle "$BACKTITLE" --title "Настройки" \
       --menu "Выберите опцию:" $HEIGHT $WIDTH $CHOICE_HEIGHT \
-      "1"  "Протокол (${config[protocol]})" \
-      "2"  "Адрес сервера" \
-      "3"  "Порт" \
-      "4"  "Транспорт VLESS (${config[transport]})" \
-      "5"  "Безопасность" \
-      "6"  "SNI Домен" \
-      "7"  "Путь (VLESS)" \
-      "8"  "Host (VLESS)" \
-      "9"  "WARP" \
+      "1" "Ядро" \
+      "2" "Адрес сервера" \
+      "3" "Порт" \
+      "4" "Транспорт" \
+      "5" "Безопасность" \
+      "6" "SNI Домен" \
+      "7" "Путь (Path)" \
+      "8" "Узел (Host)" \
+      "9" "WARP" \
       "10" "Безопасный интернет" \
       "11" "Telegram Бот" \
       "12" "Перезагрузка служб" \
@@ -1704,44 +1948,86 @@ function configuration_menu {
       break
     fi
     case $selection in
-      1 ) config_protocol_menu ;;
-      2 ) config_server_menu ;;
-      3 ) config_port_menu ;;
-      4 ) config_transport_menu ;;
-      5 ) config_security_menu ;;
-      6 ) config_sni_domain_menu ;;
-      7 ) config_path_menu ;;
-      8 ) config_host_menu ;;
-      9 ) config_warp_menu ;;
-      10) config_safenet_menu ;;
-      11) config_tgbot_menu ;;
-      12) restart_menu ;;
-      13) regenerate_menu ;;
-      14) restore_defaults_menu ;;
-      15) backup_menu ;;
-      16) restore_backup_menu ;;
+      1 )
+        config_core_menu
+        ;;
+      2 )
+        config_server_menu
+        ;;
+      3 )
+        config_port_menu
+        ;;
+      4 )
+        config_transport_menu
+        ;;
+      5 )
+        config_security_menu
+        ;;
+      6 )
+        config_sni_domain_menu
+        ;;
+      7 )
+        config_path_menu
+        ;;
+      8 )
+        config_host_menu
+        ;;
+      9 )
+        config_warp_menu
+        ;;
+      10 )
+        config_safenet_menu
+        ;;
+      11 )
+        config_tgbot_menu
+        ;;
+      12 )
+        restart_menu
+        ;;
+      13 )
+        regenerate_menu
+        ;;
+      14 )
+        restore_defaults_menu
+        ;;
+      15 )
+        backup_menu
+        ;;
+      16 )
+        restore_backup_menu
+        ;;
     esac
   done
 }
 
-function config_protocol_menu {
-  local proto
+function config_core_menu {
+  local core
   while true; do
-    proto=$(whiptail --clear --backtitle "$BACKTITLE" --title "Протокол" \
-      --radiolist --noitem "Выберите протокол:" $HEIGHT $WIDTH $CHOICE_HEIGHT \
-      "vless"     "$([[ "${config[protocol]}" == 'vless'     ]] && echo 'on' || echo 'off')" \
-      "hysteria2" "$([[ "${config[protocol]}" == 'hysteria2' ]] && echo 'on' || echo 'off')" \
+    core=$(whiptail --clear --backtitle "$BACKTITLE" --title "Ядро" \
+      --radiolist --noitem "Выберите ядро:" $HEIGHT $WIDTH $CHOICE_HEIGHT \
+      "xray" "$([[ "${config[core]}" == 'xray' ]] && echo 'on' || echo 'off')" \
+      "sing-box" "$([[ "${config[core]}" == 'sing-box' ]] && echo 'on' || echo 'off')" \
       3>&1 1>&2 2>&3)
-    if [[ $? -ne 0 ]]; then break; fi
-    if [[ ${proto} == 'hysteria2' && ${config[security]} == 'reality' ]]; then
-      message_box 'Ошибка' 'hysteria2 несовместим с reality. Используйте selfsigned.'
+    if [[ $? -ne 0 ]]; then
+      break
+    fi
+    if [[ ${core} == 'xray' && ${config[transport]} == 'tuic' ]]; then
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать ядро "xray" с транспортом "tuic". Смените ядро на "sing-box" или используйте другой транспорт.'
       continue
     fi
-    if [[ ${proto} == 'hysteria2' && ${config[security]} == 'letsencrypt' && ! ${config[server]} =~ ${regex[domain]} ]]; then
-      message_box 'Предупреждение' 'Для hysteria2 с letsencrypt нужен домен. Сейчас security сброшен в selfsigned.'
-      config[security]='selfsigned'
+    if [[ ${core} == 'xray' && ${config[transport]} == 'hysteria2' ]]; then
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать ядро "xray" с транспортом "hysteria2". Смените ядро на "sing-box" или используйте другой транспорт.'
+      continue
     fi
-    config[protocol]=$proto
+    if [[ ${core} == 'xray' && ${config[transport]} == 'shadowtls' ]]; then
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать ядро "xray" с транспортом "shadowtls". Смените ядро на "sing-box" или используйте другой транспорт.'
+      continue
+    fi
+    if [[ ${core} != 'xray' && ${config[transport]} == 'xhttp' ]]; then
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "xhttp" с ядром "sing-box". Смените ядро на "xray" или используйте другой транспорт.'
+      continue
+    fi
+    config[core]=$core
     update_config_file
     break
   done
@@ -1764,7 +2050,7 @@ function config_server_menu {
       server="${defaults[server]}"
     fi
     config[server]="${server}"
-    if [[ ${config[security]} != 'reality' && ${config[security]} != 'notls' ]]; then
+    if [[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[transport]} != 'shadowtls' ]]; then
       config[domain]="${server}"
     fi
     update_config_file
@@ -1774,22 +2060,47 @@ function config_server_menu {
 
 function config_transport_menu {
   local transport
-  if [[ ${config[protocol]} == 'hysteria2' ]]; then
-    message_box "Транспорт" "Транспорт настраивается только для VLESS. Hysteria2 всегда использует QUIC/UDP."
-    return
-  fi
   while true; do
     transport=$(whiptail --clear --backtitle "$BACKTITLE" --title "Транспорт" \
       --radiolist --noitem "Выберите транспортный протокол:" $HEIGHT $WIDTH $CHOICE_HEIGHT \
-      "tcp"   "$([[ "${config[transport]}" == 'tcp'   ]] && echo 'on' || echo 'off')" \
-      "http"  "$([[ "${config[transport]}" == 'http'  ]] && echo 'on' || echo 'off')" \
+      "tcp" "$([[ "${config[transport]}" == 'tcp' ]] && echo 'on' || echo 'off')" \
+      "http" "$([[ "${config[transport]}" == 'http' ]] && echo 'on' || echo 'off')" \
       "xhttp" "$([[ "${config[transport]}" == 'xhttp' ]] && echo 'on' || echo 'off')" \
-      "grpc"  "$([[ "${config[transport]}" == 'grpc'  ]] && echo 'on' || echo 'off')" \
-      "ws"    "$([[ "${config[transport]}" == 'ws'    ]] && echo 'on' || echo 'off')" \
+      "grpc" "$([[ "${config[transport]}" == 'grpc' ]] && echo 'on' || echo 'off')" \
+      "ws" "$([[ "${config[transport]}" == 'ws' ]] && echo 'on' || echo 'off')" \
+      "tuic" "$([[ "${config[transport]}" == 'tuic' ]] && echo 'on' || echo 'off')" \
+      "hysteria2" "$([[ "${config[transport]}" == 'hysteria2' ]] && echo 'on' || echo 'off')" \
+      "shadowtls" "$([[ "${config[transport]}" == 'shadowtls' ]] && echo 'on' || echo 'off')" \
       3>&1 1>&2 2>&3)
-    if [[ $? -ne 0 ]]; then break; fi
+    if [[ $? -ne 0 ]]; then
+      break
+    fi
     if [[ ${transport} == 'ws' && ${config[security]} == 'reality' ]]; then
-      message_box 'Ошибка' 'ws несовместим с reality. Смените security или транспорт.'
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "ws" с сертификатом "reality". Используйте другой транспорт или смените сертификат на "letsencrypt", "selfsigned" или "notls".'
+      continue
+    fi
+    if [[ ${transport} == 'xhttp' && ${config[core]} != 'xray' ]]; then
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "xhttp" с ядром "sing-box". Используйте ядро "xray".'
+      continue
+    fi
+    if [[ ${transport} == 'tuic' && ${config[security]} == 'reality' ]]; then
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "tuic" с сертификатом "reality". Используйте другой транспорт или смените сертификат на "letsencrypt" или "selfsigned"'
+      continue
+    fi
+    if [[ ${transport} == 'tuic' && ${config[core]} == 'xray' ]]; then
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "tuic" с ядром "xray". Используйте другой транспорт или смените ядро на "sing-box"'
+      continue
+    fi
+    if [[ ${transport} == 'hysteria2' && ${config[security]} == 'reality' ]]; then
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "hysteria2" с сертификатом "reality". Используйте другой транспорт или смените сертификат на "letsencrypt" или "selfsigned"'
+      continue
+    fi
+    if [[ ${transport} == 'hysteria2' && ${config[core]} == 'xray' ]]; then
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "hysteria2" с ядром "xray". Используйте другой транспорт или смените ядро на "sing-box"'
+      continue
+    fi
+    if [[ ${transport} == 'shadowtls' && ${config[core]} == 'xray' ]]; then
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать транспорт "shadowtls" с ядром "xray". Используйте другой транспорт или смените ядро на "sing-box"'
       continue
     fi
     config[transport]=$transport
@@ -1800,15 +2111,15 @@ function config_transport_menu {
 
 function config_sni_domain_menu {
   local sni_domain
-  local hint=""
-  [[ ${config[protocol]} == 'hysteria2' ]] && hint=" (необязателен для hysteria2)"
   while true; do
     sni_domain=$(whiptail --clear --backtitle "$BACKTITLE" --title "SNI Домен" \
-      --inputbox "Введите SNI домен${hint}:" $HEIGHT $WIDTH "${config[domain]}" \
+      --inputbox "Введите SNI домен:" $HEIGHT $WIDTH "${config[domain]}" \
       3>&1 1>&2 2>&3)
-    if [[ $? -ne 0 ]]; then break; fi
-    if [[ -n "$sni_domain" && ! $sni_domain =~ ${regex[domain_port]} ]]; then
-      message_box "Неверный домен" "${sni_domain} не является валидным доменом."
+    if [[ $? -ne 0 ]]; then
+      break
+    fi
+    if [[ ! $sni_domain =~ ${regex[domain_port]} ]]; then
+      message_box "Неверный домен" '"'"${sni_domain}"'" не является валидным доменом.'
       continue
     fi
     config[domain]=$sni_domain
@@ -1823,26 +2134,28 @@ function config_security_menu {
   while true; do
     security=$(whiptail --clear --backtitle "$BACKTITLE" --title "Тип безопасности" \
       --radiolist --noitem "Выберите тип безопасности:" $HEIGHT $WIDTH $CHOICE_HEIGHT \
-      "reality"      "$([[ "${config[security]}" == 'reality'      ]] && echo 'on' || echo 'off')" \
-      "letsencrypt"  "$([[ "${config[security]}" == 'letsencrypt'  ]] && echo 'on' || echo 'off')" \
-      "selfsigned"   "$([[ "${config[security]}" == 'selfsigned'   ]] && echo 'on' || echo 'off')" \
-      "notls"        "$([[ "${config[security]}" == 'notls'        ]] && echo 'on' || echo 'off')" \
+      "reality" "$([[ "${config[security]}" == 'reality' ]] && echo 'on' || echo 'off')" \
+      "letsencrypt" "$([[ "${config[security]}" == 'letsencrypt' ]] && echo 'on' || echo 'off')" \
+      "selfsigned" "$([[ "${config[security]}" == 'selfsigned' ]] && echo 'on' || echo 'off')" \
+      "notls" "$([[ "${config[security]}" == 'notls' ]] && echo 'on' || echo 'off')" \
       3>&1 1>&2 2>&3)
-    if [[ $? -ne 0 ]]; then break; fi
+    if [[ $? -ne 0 ]]; then
+      break
+    fi
     if [[ ! ${config[server]} =~ ${regex[domain]} && ${security} == 'letsencrypt' ]]; then
-      message_box 'Ошибка' 'Для letsencrypt необходим валидный домен сервера.'
+      message_box 'Ошибка конфигурации' 'Вы должны назначить валидный домен серверу, если хотите использовать "letsencrypt" в качестве типа безопасности.'
       continue
     fi
     if [[ ${config[transport]} == 'ws' && ${security} == 'reality' ]]; then
-      message_box 'Ошибка' 'ws несовместим с reality. Смените транспорт или security.'
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать сертификат "reality" с транспортом "ws". Смените сертификат на "letsencrypt", "selfsigned" или "notls".'
       continue
     fi
-    if [[ ${config[protocol]} == 'hysteria2' && ${security} == 'reality' ]]; then
-      message_box 'Ошибка' 'hysteria2 несовместим с reality. Используйте letsencrypt или selfsigned.'
+    if [[ ${config[transport]} == 'tuic' && ${security} == 'reality' ]]; then
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать сертификат "reality" с транспортом "tuic". Смените сертификат на "letsencrypt", "selfsigned" или используйте другой транспорт.'
       continue
     fi
-    if [[ ${config[protocol]} == 'hysteria2' && ${security} == 'letsencrypt' && ! ${config[server]} =~ ${regex[domain]} ]]; then
-      message_box 'Ошибка' 'Для hysteria2 с letsencrypt укажите домен сервера.'
+    if [[ ${config[transport]} == 'hysteria2' && ${security} == 'reality' ]]; then
+      message_box 'Ошибка конфигурации' 'Вы не можете использовать сертификат "reality" с транспортом "hysteria2". Смените сертификат на "letsencrypt", "selfsigned" или используйте другой транспорт.'
       continue
     fi
     if [[ ${security} == 'letsencrypt' && ${config[port]} -ne 443 ]]; then
@@ -1850,19 +2163,20 @@ function config_security_menu {
         free_80=false
         for container in $(${docker_cmd} -p ${compose_project} ps -q); do
           if docker port "${container}" | grep '0.0.0.0:80' >/dev/null 2>&1; then
-            free_80=true; break
+            free_80=true
+            break
           fi
         done
       fi
       if [[ ${free_80} != 'true' ]]; then
-        message_box 'Ошибка' 'Порт 80 должен быть свободен для letsencrypt.'
+        message_box 'Порт 80 должен быть свободен, если вы хотите использовать "letsencrypt".'
         continue
       fi
     fi
-    if [[ ${security} != 'reality' && ${security} != 'notls' ]]; then
+    if [[ ${security} != 'reality' && ${security} != 'notls' && ${config[transport]} != 'shadowtls' ]]; then
       config[domain]="${config[server]}"
     fi
-    if [[ ${security} == 'reality' || ${security} == 'notls' ]]; then
+    if [[ ${security} == 'reality' || ${security} == 'notls' || ${config[transport]} == 'shadowtls' ]]; then
       config[domain]="${defaults[domain]}"
     fi
     config[security]="${security}"
@@ -1896,10 +2210,6 @@ function config_port_menu {
 
 function config_path_menu {
   local user_path
-  if [[ ${config[protocol]} == "hysteria2" ]]; then
-    message_box "Путь" "Путь используется только для VLESS. Для hysteria2 не применяется."
-    return
-  fi
   while true; do
     user_path=$(whiptail --clear --backtitle "$BACKTITLE" --title "Путь (Path)" \
       --inputbox "Введите путь (без начального слеша /):" $HEIGHT $WIDTH "${config[service_path]}" \
@@ -1917,10 +2227,6 @@ function config_path_menu {
 
 function config_host_menu {
   local host
-  if [[ ${config[protocol]} == "hysteria2" ]]; then
-    message_box "Host" "Host используется только для VLESS. Для hysteria2 не применяется."
-    return
-  fi
   while true; do
     host=$(whiptail --clear --backtitle "$BACKTITLE" --title "Узел (Host)" \
       --inputbox "Введите заголовок Host:" $HEIGHT $WIDTH "${config[host_header]}" \
