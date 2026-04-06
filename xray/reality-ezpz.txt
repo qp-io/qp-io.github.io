@@ -36,7 +36,7 @@ HEIGHT=30
 WIDTH=65
 CHOICE_HEIGHT=20
 
-image[xray]="teddysun/xray:latest"
+image[xray]="ghcr.io/xtls/xray-core:latest"
 image[nginx]="nginx:latest"
 image[certbot]="certbot/certbot:latest"
 image[haproxy]="haproxy:latest"
@@ -682,7 +682,7 @@ function update_users_file {
 
 function generate_keys {
     local key_pair
-    key_pair=$(docker run --rm ${image[xray]} xray x25519)
+    key_pair=$(docker run --rm ${image[xray]} x25519)
     config_file[private_key]=$(echo "${key_pair}" | grep 'PrivateKey:' | awk '{print $2}')
     config_file[public_key]=$(echo "${key_pair}" | grep -E 'Password' | awk '{print $NF}')
     config_file[short_id]=$(openssl rand -hex 8)
@@ -802,9 +802,9 @@ services:
     environment:
       TZ: Etc/UTC
     volumes:
-    - ./${path[engine]#${config_path}/}:/etc/${config[core]}/config.json
-    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' ]] && { [[ ${config[transport]} == 'http' ]] || [[ ${config[transport]} == 'tcp' ]] || [[ ${config[protocol]} == 'hysteria2' ]]; } && echo "- ./${path[server_crt]#${config_path}/}:/etc/${config[core]}/server.crt" || true)
-    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' ]] && { [[ ${config[transport]} == 'http' ]] || [[ ${config[transport]} == 'tcp' ]] || [[ ${config[protocol]} == 'hysteria2' ]]; } && echo "- ./${path[server_key]#${config_path}/}:/etc/${config[core]}/server.key" || true)
+    - ./${path[engine]#${config_path}/}:/usr/local/etc/xray/config.json
+    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' ]] && { [[ ${config[transport]} == 'http' ]] || [[ ${config[transport]} == 'tcp' ]] || [[ ${config[protocol]} == 'hysteria2' ]]; } && echo "- ./${path[server_crt]#${config_path}/}:/usr/local/etc/xray/server.crt" || true)
+    $([[ ${config[security]} != 'reality' && ${config[security]} != 'notls' ]] && { [[ ${config[transport]} == 'http' ]] || [[ ${config[transport]} == 'tcp' ]] || [[ ${config[protocol]} == 'hysteria2' ]]; } && echo "- ./${path[server_key]#${config_path}/}:/usr/local/etc/xray/server.key" || true)
     networks:
     - reality
 $(if [[ ${config[security]} != 'reality' && ${config[security]} != 'notls' && ${config[protocol]} != 'hysteria2' ]]; then
@@ -1058,13 +1058,12 @@ function generate_engine_config {
       "shortIds": ["'"${config[short_id]}'"']
     }'
 
-  # TLS объект для VLESS (tcp/http с TLS)
   tls_object='"security": "tls",
     "tlsSettings": {
       "certificates": [{
         "oneTimeLoading": true,
-        "certificateFile": "/etc/xray/server.crt",
-        "keyFile": "/etc/xray/server.key"
+        "certificateFile": "/usr/local/etc/xray/server.crt",
+        "keyFile": "/usr/local/etc/xray/server.key"
       }]
     }'
 
@@ -1087,7 +1086,14 @@ function generate_engine_config {
       },'
   fi
 
-  # ── Hysteria 2 — QUIC/UDP ──────────────────────────────────────────────
+  # ── Hysteria 2 ──────────────────────────────────────────────────────
+  # Структура согласно PR #5679 (автор LjhAUMEM):
+  # - protocol: "hysteria" (не hysteria2!)
+  # - settings.clients[].auth — аутентификация
+  # - streamSettings.network: "hysteria"
+  # - streamSettings.security: "tls"  (на том же уровне что network!)
+  # - streamSettings.tlsSettings.alpn: ["h3"]
+  # - streamSettings.hysteriaSettings.version: 2
   if [[ ${config[protocol]} == 'hysteria2' ]]; then
     for user in "${!users[@]}"; do
       if [ -n "$users_object" ]; then
@@ -1096,22 +1102,20 @@ function generate_engine_config {
       users_object="${users_object}"'{"auth": "'"$(echo -n "${user}${users[${user}]}" | sha256sum | cut -d ' ' -f 1 | head -c 16)"'", "email": "'"${user}"'"}'
     done
 
-    # Сертификат для hysteria2:
-    # - selfsigned: из /etc/xray/server.crt + server.key
-    # - letsencrypt: через certbot (certbot_startup пишет сертификат в certificate/)
-    # SNI указывается только клиентом, сервер его не настраивает
-    local hy2_tls
+    local hy2_security
     if [[ ${config[security]} == 'notls' ]]; then
-      hy2_tls='"security": "none"'
+      hy2_security='"security": "none"'
     else
-      hy2_tls='"security": "tls",
-        "tlsSettings": {
-          "certificates": [{
-            "oneTimeLoading": true,
-            "certificateFile": "/etc/xray/server.crt",
-            "keyFile": "/etc/xray/server.key"
-          }]
-        }'
+      # selfsigned или letsencrypt — TLS с сертификатом
+      hy2_security='"security": "tls",
+      "tlsSettings": {
+        "alpn": ["h3"],
+        "certificates": [{
+          "oneTimeLoading": true,
+          "certificateFile": "/usr/local/etc/xray/server.crt",
+          "keyFile": "/usr/local/etc/xray/server.key"
+        }]
+      }'
     fi
 
     cat >"${path[engine]}" <<XEOF
@@ -1123,18 +1127,17 @@ function generate_engine_config {
   "inbounds": [{
     "listen": "0.0.0.0",
     "port": 8443,
-    "protocol": "hysteria2",
+    "protocol": "hysteria",
     "tag": "inbound",
     "settings": {
       "version": 2,
       "clients": [${users_object}]
     },
     "streamSettings": {
-      "network": "hysteria2",
-      ${hy2_tls},
+      "network": "hysteria",
+      ${hy2_security},
       "hysteriaSettings": {
-        "version": 2,
-        "udpIdleTimeout": 60
+        "version": 2
       }
     }
   }],
@@ -1169,7 +1172,7 @@ function generate_engine_config {
 XEOF
 
   else
-    # ── VLESS — tcp / http / grpc / ws / xhttp ─────────────────────────────
+    # ── VLESS ── tcp / http / grpc / ws / xhttp ─────────────────────────
     for user in "${!users[@]}"; do
       if [ -n "$users_object" ]; then
         users_object="${users_object},"$'\n'
