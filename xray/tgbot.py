@@ -129,7 +129,7 @@ def get_users():
 
 
 def get_user_conf(name):
-    """Получает vless:// / tuic:// / hy2:// ссылки пользователя."""
+    """Получает vless:// / hy2:// ссылки пользователя."""
     _, out = run_script(f'--show-user {name}', timeout=120)
     result = []
     for line in out.splitlines():
@@ -188,45 +188,61 @@ async def send_main_menu(bot, chat_id, text=None):
 async def send_settings_menu(bot, chat_id, text=None):
     c = read_config()
     warp = c.get("warp", "OFF")
+    proto = c.get("protocol", "vless")
     if not text:
-        text = (
-            "⚙️ <b>Настройки</b>\n"
-            f"Core: <code>{c.get('core','?')}</code>\n"
-            f"Transport: <code>{c.get('transport','?')}</code>\n"
-            f"Security: <code>{c.get('security','?')}</code>\n"
-            f"Port: <code>{c.get('port','?')}</code>\n"
-            f"Server: <code>{c.get('server','?')}</code>\n"
-            f"SNI: <code>{c.get('domain','?')}</code>\n"
-            f"Path: <code>/{c.get('service_path','')}</code>\n"
-            f"WARP: <b>{warp}</b>"
-        )
+        sni = c.get("domain") or c.get("server", "?")
+        if proto == "hysteria2":
+            text = (
+                "⚙️ <b>Hysteria 2</b>\n"
+                f"Протокол: <code>hysteria2 (QUIC/UDP)</code>\n"
+                f"Security: <code>{c.get('security','?')}</code>\n"
+                f"SNI: <code>{sni}</code>\n"
+                f"Port: <code>{c.get('port','?')}</code>\n"
+                f"Server: <code>{c.get('server','?')}</code>\n"
+                f"WARP: <b>{warp}</b>"
+            )
+        else:
+            text = (
+                "⚙️ <b>VLESS</b>\n"
+                f"Протокол: <code>vless</code>\n"
+                f"Transport: <code>{c.get('transport','?')}</code>\n"
+                f"Security: <code>{c.get('security','?')}</code>\n"
+                f"SNI: <code>{sni}</code>\n"
+                f"Port: <code>{c.get('port','?')}</code>\n"
+                f"Server: <code>{c.get('server','?')}</code>\n"
+                f"Path: <code>/{c.get('service_path','')}</code>\n"
+                f"WARP: <b>{warp}</b>"
+            )
     warp_btn = InlineKeyboardButton(
         "WARP OFF" if warp == "ON" else "WARP ON",
         callback_data="warp_off" if warp == "ON" else "sub!warp"
     )
+    # Общие кнопки
     kb = [
-        [
-            InlineKeyboardButton("Core", callback_data="sub!core"),
-            InlineKeyboardButton("Transport", callback_data="sub!transport")
-        ],
+        [InlineKeyboardButton("🔀 Протокол", callback_data="sub!protocol")],
         [
             InlineKeyboardButton("Security", callback_data="sub!security"),
-            warp_btn
+            InlineKeyboardButton("SNI / Домен", callback_data="ask!domain"),
         ],
         [
             InlineKeyboardButton("Server", callback_data="ask!server"),
-            InlineKeyboardButton("Port", callback_data="ask!port")
+            InlineKeyboardButton("Port", callback_data="ask!port"),
         ],
-        [
-            InlineKeyboardButton("SNI", callback_data="ask!domain"),
-            InlineKeyboardButton("Path", callback_data="ask!path")
-        ],
-        [
-            InlineKeyboardButton("Host", callback_data="ask!host_header")
-        ],
+        [warp_btn],
+    ]
+    # Кнопки только для VLESS
+    if proto != "hysteria2":
+        kb += [
+            [
+                InlineKeyboardButton("Transport", callback_data="sub!transport"),
+                InlineKeyboardButton("Path", callback_data="ask!path"),
+            ],
+            [InlineKeyboardButton("Host", callback_data="ask!host_header")],
+        ]
+    kb += [
         [InlineKeyboardButton("🔄 Перезапуск служб", callback_data="do_restart")],
         [InlineKeyboardButton("📥 Скачать бэкап", callback_data="do_backup")],
-        [InlineKeyboardButton("🔙 Главное меню", callback_data="main")]
+        [InlineKeyboardButton("🔙 Главное меню", callback_data="main")],
     ]
     await bot.send_message(
         chat_id,
@@ -281,7 +297,7 @@ async def ask_input(update: Update, context: ContextTypes.DEFAULT_TYPE, param: s
     context.user_data["param"] = param
     hints = {
         'server':       'Введите IP или домен сервера:',
-        'domain':       'Введите SNI/домен:',
+        'domain':       'Введите SNI/домен (для hysteria2 используется в hy2:// ссылке):',
         'port':         'Введите порт (1–65535):',
         'path':         'Введите путь (без /):\n(Отправьте / для очистки)',
         'host_header':  'Введите Host заголовок:',
@@ -301,25 +317,29 @@ async def ask_input(update: Update, context: ContextTypes.DEFAULT_TYPE, param: s
 async def apply_setting(update: Update, context: ContextTypes.DEFAULT_TYPE, param: str, val: str):
     chat_id = update.effective_chat.id
     if param == "warp_license":
-        # WARP+ — передаём лицензию аргументом, скрипт сам создаст аккаунт
         await context.bot.send_message(chat_id, "⏳ Включаю WARP+...\nМожет занять 1–2 минуты.")
         rc, out = run_script(f'--warp-license {val}', timeout=240)
     elif param == "service_path" and (val == "/" or val == ""):
         write_config("service_path", "")
         await context.bot.send_message(chat_id, "⏳ Применяю настройки...")
         rc, out = run_script()
+    elif param == "protocol":
+        # При смене на hysteria2 — сбрасываем reality на selfsigned
+        if val == "hysteria2":
+            cfg = read_config()
+            if cfg.get("security", "reality") == "reality":
+                write_config("security", "selfsigned")
+        write_config(param, val)
+        await context.bot.send_message(chat_id, "⏳ Применяю настройки...")
+        rc, out = run_script()
     else:
         write_config(param, val)
         await context.bot.send_message(chat_id, "⏳ Применяю настройки...")
         rc, out = run_script()
-    snippet = out if len(out) < 3900 else out[:3900] + "\n...(truncated)"
-    await context.bot.send_message(
-        chat_id,
-        f"✅ Готово.\n<blockquote>{snippet}</blockquote>",
-        parse_mode="HTML"
-    )
+    snippet = out[:3900] if len(out) < 3900 else out[:3900] + "\n...(truncated)"
+    await context.bot.send_message(chat_id,
+        f"✅ Готово.\n<blockquote>{snippet}</blockquote>", parse_mode="HTML")
     await send_settings_menu(context.bot, chat_id)
-
 
 @restricted
 async def do_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -356,11 +376,8 @@ async def do_backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    raw = query.data
-    data = raw.split("!")
-    cmd = data[0]
-    arg = data[1] if len(data) > 1 else ""
-    arg2 = data[2] if len(data) > 2 else ""
+    data = query.data.split("!")
+    cmd = data[0]; arg = data[1] if len(data) > 1 else ""; arg2 = data[2] if len(data) > 2 else ""
     chat_id = update.effective_chat.id
 
     if cmd == "main":
@@ -375,50 +392,27 @@ async def cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await users_action(update, context, "del")
     elif cmd == "u_add":
         context.user_data["state"] = "add_user"
-        await context.bot.send_message(
-            chat_id,
-            "Введите имя пользователя:",
-            reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("Отмена", callback_data="m_users")]]
-            )
-        )
+        await context.bot.send_message(chat_id, "Введите имя пользователя:",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Отмена", callback_data="m_users")]]))
     elif cmd == "u_show":
         confs = get_user_conf(arg)
         for c in confs:
-            if not c:
-                continue
+            if not c: continue
             try:
                 qr = qrcode.make(c)
-                bio = io.BytesIO()
-                qr.save(bio, "PNG")
-                bio.seek(0)
-                await context.bot.send_photo(
-                    chat_id,
-                    photo=bio,
-                    caption=f"<code>{c[:1000]}</code>",
-                    parse_mode="HTML"
-                )
+                bio = io.BytesIO(); qr.save(bio, "PNG"); bio.seek(0)
+                await context.bot.send_photo(chat_id, photo=bio,
+                    caption=f"<code>{c[:1000]}</code>", parse_mode="HTML")
             except Exception:
                 await context.bot.send_message(chat_id, f"<code>{c[:3000]}</code>", parse_mode="HTML")
-        await context.bot.send_message(
-            chat_id,
-            "↩️ Вернуться к пользователям",
-            reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("🔙 Назад", callback_data="m_users")]]
-            )
-        )
+        await context.bot.send_message(chat_id, "↩️ Назад",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data="m_users")]]))
     elif cmd == "u_del":
-        kb = [
-            [
+        await context.bot.send_message(chat_id, f"Удалить {arg}?",
+            reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("Да", callback_data=f"confirm_del!{arg}"),
                 InlineKeyboardButton("Нет", callback_data="m_users")
-            ]
-        ]
-        await context.bot.send_message(
-            chat_id,
-            f"Удалить {arg}?",
-            reply_markup=InlineKeyboardMarkup(kb)
-        )
+            ]]))
     elif cmd == "confirm_del":
         run_script(f"--delete-user {arg}")
         await context.bot.send_message(chat_id, "Удалён.")
@@ -431,71 +425,63 @@ async def cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         write_config("warp", "OFF")
         await context.bot.send_message(chat_id, "⏳ Отключаю WARP...")
         rc, out = run_script()
-        snippet = out if len(out) < 3900 else out[:3900] + "\n...(truncated)"
-        await context.bot.send_message(
-            chat_id,
-            f"✅ WARP отключён.\n<blockquote>{snippet}</blockquote>",
-            parse_mode="HTML"
-        )
+        snippet = out[:3900] if len(out) < 3900 else out[:3900] + "\n...(truncated)"
+        await context.bot.send_message(chat_id, f"✅ WARP отключён.\n<blockquote>{snippet}</blockquote>", parse_mode="HTML")
         await send_settings_menu(context.bot, chat_id)
     elif cmd == "sub":
-        if arg == "core":
+        if arg == "protocol":
             kb = [
-                [
-                    InlineKeyboardButton("Xray", callback_data="set!core!xray"),
-                    InlineKeyboardButton("Sing-Box", callback_data="set!core!sing-box")
-                ]
+                [InlineKeyboardButton("VLESS",      callback_data="set!protocol!vless")],
+                [InlineKeyboardButton("Hysteria 2", callback_data="set!protocol!hysteria2")],
+                [InlineKeyboardButton("🔙", callback_data="m_settings")],
             ]
+            await context.bot.send_message(chat_id, "Выберите протокол:",
+                reply_markup=InlineKeyboardMarkup(kb))
+            return
         elif arg == "transport":
-            opts = ['tcp', 'http', 'grpc', 'ws', 'xhttp', 'tuic', 'hysteria2', 'shadowtls']
-            kb = [
-                [
-                    InlineKeyboardButton(o, callback_data=f"set!transport!{o}")
-                    for o in opts[i:i+3]
-                ]
-                for i in range(0, len(opts), 3)
-            ]
+            cfg = read_config()
+            if cfg.get("protocol", "vless") == "hysteria2":
+                await context.bot.send_message(chat_id, "ℹ️ Hysteria2 использует QUIC/UDP, транспорт не настраивается.")
+                await send_settings_menu(context.bot, chat_id)
+                return
+            opts = ['tcp', 'http', 'grpc', 'ws', 'xhttp']
+            kb = [[InlineKeyboardButton(o, callback_data=f"set!transport!{o}") for o in opts[i:i+3]]
+                  for i in range(0, len(opts), 3)]
+            kb.append([InlineKeyboardButton("🔙", callback_data="m_settings")])
+            await context.bot.send_message(chat_id, "Транспорт для VLESS:",
+                reply_markup=InlineKeyboardMarkup(kb))
+            return
         elif arg == "security":
-            kb = [
-                [InlineKeyboardButton(o, callback_data=f"set!security!{o}")]
-                for o in ['reality', 'letsencrypt', 'selfsigned', 'notls']
-            ]
+            cfg = read_config()
+            proto = cfg.get("protocol", "vless")
+            # hysteria2 не поддерживает reality
+            sec_opts = ['letsencrypt', 'selfsigned', 'notls'] if proto == "hysteria2" else ['reality', 'letsencrypt', 'selfsigned', 'notls']
+            hint = "Безопасность для Hysteria2:" if proto == "hysteria2" else "Выберите тип безопасности:"
+            kb = [[InlineKeyboardButton(o, callback_data=f"set!security!{o}")] for o in sec_opts]
+            kb.append([InlineKeyboardButton("🔙", callback_data="m_settings")])
+            await context.bot.send_message(chat_id, hint, reply_markup=InlineKeyboardMarkup(kb))
+            return
         elif arg == "warp":
             kb = [
-                [InlineKeyboardButton("🆓 WARP бесплатный",    callback_data="warp_free")],
+                [InlineKeyboardButton("🆓 WARP бесплатный",     callback_data="warp_free")],
                 [InlineKeyboardButton("⭐ WARP+ (с лицензией)", callback_data="ask!warp_license")],
                 [InlineKeyboardButton("🔙", callback_data="m_settings")],
             ]
-            await context.bot.send_message(
-                chat_id,
-                "Выберите тип WARP:",
-                reply_markup=InlineKeyboardMarkup(kb)
-            )
+            await context.bot.send_message(chat_id, "Выберите тип WARP:", reply_markup=InlineKeyboardMarkup(kb))
             return
-        kb.append([InlineKeyboardButton("🔙", callback_data="m_settings")])
-        await context.bot.send_message(
-            chat_id,
-            f"Выберите {arg}:",
-            reply_markup=InlineKeyboardMarkup(kb)
-        )
+        kb = [[InlineKeyboardButton("🔙", callback_data="m_settings")]]
+        await context.bot.send_message(chat_id, f"Выберите {arg}:", reply_markup=InlineKeyboardMarkup(kb))
     elif cmd == "warp_free":
-        # Пишем warp=ON без лицензии — скрипт сам создаёт аккаунт
-        write_config("warp", "ON")
-        write_config("warp_license", "")
+        write_config("warp", "ON"); write_config("warp_license", "")
         await context.bot.send_message(chat_id, "⏳ Включаю WARP...\nМожет занять 1–2 минуты.")
         rc, out = run_script(timeout=240)
-        snippet = out if len(out) < 3900 else out[:3900] + "\n...(truncated)"
-        await context.bot.send_message(
-            chat_id,
-            f"✅ WARP включён.\n<blockquote>{snippet}</blockquote>",
-            parse_mode="HTML"
-        )
+        snippet = out[:3900] if len(out) < 3900 else out[:3900] + "\n...(truncated)"
+        await context.bot.send_message(chat_id, f"✅ WARP включён.\n<blockquote>{snippet}</blockquote>", parse_mode="HTML")
         await send_settings_menu(context.bot, chat_id)
     elif cmd == "do_restart":
         await do_restart(update, context)
     elif cmd == "do_backup":
         await do_backup(update, context)
-
 
 @restricted
 async def msg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
