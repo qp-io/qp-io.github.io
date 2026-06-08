@@ -24,6 +24,10 @@ ok()   { echo -e "${GREEN}[✓]${NC} $1"; }
 warn() { echo -e "${YELLOW}[!]${NC} $1"; }
 err()  { echo -e "${RED}[✗]${NC} $1"; }
 
+get_script_path() {
+    readlink -f "$0" 2>/dev/null || realpath "$0" 2>/dev/null || echo "$0"
+}
+
 check_root() {
     [[ $EUID -ne 0 ]] && { err "Запустите скрипт от root (sudo)"; exit 1; }
 }
@@ -43,11 +47,11 @@ resolve_host() {
     echo "$ip"
 }
 
-get_my_ip() {
-    curl -s --max-time 5 ifconfig.me 2>/dev/null \
+get_my_ip() {    curl -s --max-time 5 ifconfig.me 2>/dev/null \
     || curl -s --max-time 5 api.ipify.org 2>/dev/null \
     || echo "<IP сервера>"
 }
+
 ufw_action() {
     local action=$1 port=$2 proto=$3
     command -v ufw &>/dev/null && ufw status | grep -q "Status: active" || return
@@ -92,11 +96,11 @@ install_deps() {
         DEBIAN_FRONTEND=noninteractive apt-get install -y "${pkgs[@]}" > /dev/null 2>&1
     fi
 }
-
 # ============================================================
 #  Конфиг
 # ============================================================
-conf_init() {    mkdir -p "$CONF_DIR"
+conf_init() {
+    mkdir -p "$CONF_DIR"
     [[ -f "$CONF_FILE" ]] || touch "$CONF_FILE"
     chmod 600 "$CONF_FILE"
 }
@@ -141,11 +145,11 @@ apply_dnat() {
             iptables -t nat -A PREROUTING -p udp --dport "$in_port" -j DNAT --to-destination "$target_ip:$target_port"
             ;;
         tcp+udp)
-            iptables -t nat -A PREROUTING -p tcp --dport "$in_port" -j DNAT --to-destination "$target_ip:$target_port"
-            iptables -t nat -A PREROUTING -p udp --dport "$in_port" -j DNAT --to-destination "$target_ip:$target_port"
+            iptables -t nat -A PREROUTING -p tcp --dport "$in_port" -j DNAT --to-destination "$target_ip:$target_port"            iptables -t nat -A PREROUTING -p udp --dport "$in_port" -j DNAT --to-destination "$target_ip:$target_port"
             ;;
     esac
-    iptables -t nat -C POSTROUTING -j MASQUERADE 2>/dev/null \    || iptables -t nat -A POSTROUTING -j MASQUERADE
+    iptables -t nat -C POSTROUTING -j MASQUERADE 2>/dev/null \
+    || iptables -t nat -A POSTROUTING -j MASQUERADE
 }
 
 remove_dnat() {
@@ -165,7 +169,7 @@ remove_dnat() {
 }
 
 # ============================================================
-#  Cron — авто-обновление IP (Переписан на чистый Bash без Python)
+#  Cron — авто-обновление IP
 # ============================================================
 install_cron() {
     cat > "$UPDATE_SCRIPT" << 'EOFSCRIPT'
@@ -191,10 +195,10 @@ while IFS='|' read -r id in_port proto target_host target_port old_ip added_at; 
         echo "$id|$in_port|$proto|$target_host|$target_port|$old_ip|$added_at" >> "$TMP_CONF"
         continue
     fi
-
     if [[ "$new_ip" != "$old_ip" ]]; then
         log "[$id] $target_host: IP изменился $old_ip → $new_ip, обновляю правила..."
-                case $proto in
+        
+        case $proto in
             tcp)     iptables -t nat -D PREROUTING -p tcp --dport "$in_port" -j DNAT --to-destination "$old_ip:$target_port" 2>/dev/null ;;
             udp)     iptables -t nat -D PREROUTING -p udp --dport "$in_port" -j DNAT --to-destination "$old_ip:$target_port" 2>/dev/null ;;
             tcp+udp) iptables -t nat -D PREROUTING -p tcp --dport "$in_port" -j DNAT --to-destination "$old_ip:$target_port" 2>/dev/null
@@ -239,11 +243,11 @@ remove_cron() {
 # ============================================================
 show_status() {
     local my_ip
-    my_ip=$(get_my_ip)
-    echo ""
+    my_ip=$(get_my_ip)    echo ""
     echo -e "${BOLD}${CYAN}╔═══════════════════════════════════════════════════╗${NC}"
     echo -e "${BOLD}${CYAN}║           rout — статус                     ║${NC}"
-    echo -e "${BOLD}${CYAN}╚═══════════════════════════════════════════════════╝${NC}"    echo -e "  IP этого сервера: ${BOLD}$my_ip${NC}"
+    echo -e "${BOLD}${CYAN}╚═══════════════════════════════════════════════════╝${NC}"
+    echo -e "  IP этого сервера: ${BOLD}$my_ip${NC}"
     echo ""
     local relays
     relays=$(conf_list)
@@ -255,7 +259,6 @@ show_status() {
         echo "  ──────────────────────────────────────────────────────────────────────────────"
         while IFS='|' read -r id in_port proto target_host target_port target_ip added_at; do
             local active="${RED}✗${NC}"
-            # Более надежная проверка наличия правила в iptables
             if iptables -t nat -S PREROUTING 2>/dev/null | grep -q "DNAT.*$target_ip:$target_port"; then
                 active="${GREEN}✓${NC}"
             fi
@@ -289,10 +292,10 @@ do_install() {
     echo -e "${BOLD}═══════════════════════════════════════${NC}"
     echo ""
     local my_ip
-    my_ip=$(get_my_ip)
-    echo -e "  IP этого сервера: ${BOLD}$my_ip${NC}"
+    my_ip=$(get_my_ip)    echo -e "  IP этого сервера: ${BOLD}$my_ip${NC}"
     echo ""
-        read -rp "  Target (домен или IP): " TARGET_HOST
+    
+    read -rp "  Target (домен или IP): " TARGET_HOST
     [[ -z "$TARGET_HOST" ]] && { err "Target не может быть пустым"; return 1; }
     
     read -rp "  Target порт (по умолчанию 4500): " TARGET_PORT
@@ -338,10 +341,10 @@ do_install() {
     msg "Добавляю iptables правила ($PROTO)..."
     apply_dnat "$IN_PORT" "$PROTO" "$TARGET_IP" "$TARGET_PORT"
     ok "Правила добавлены"
-    ufw_action "allow" "$IN_PORT" "$PROTO"
-    
+    ufw_action "allow" "$IN_PORT" "$PROTO"    
     local id
-    id=$(next_id)    conf_add "$id" "$IN_PORT" "$PROTO" "$TARGET_HOST" "$TARGET_PORT" "$TARGET_IP"
+    id=$(next_id)
+    conf_add "$id" "$IN_PORT" "$PROTO" "$TARGET_HOST" "$TARGET_PORT" "$TARGET_IP"
     
     if ! is_ip "$TARGET_HOST"; then
         install_cron
@@ -387,10 +390,10 @@ do_remove() {
             ok "Relay #$id удалён"
         done <<< "$relays"
         remove_cron
-    else
-        local entry
+    else        local entry
         entry=$(conf_get "$choice")
-        if [[ -z "$entry" ]]; then            err "Relay #$choice не найден"
+        if [[ -z "$entry" ]]; then
+            err "Relay #$choice не найден"
             return
         fi
         IFS='|' read -r id in_port proto target_host target_port target_ip _ <<< "$entry"
@@ -399,7 +402,7 @@ do_remove() {
         conf_remove "$id"
         ok "Relay #$id удалён"
         
-        # Проверка: остались ли доменные relay? (Исправленная логика)
+        # Проверка: остались ли доменные relay?
         local has_domain=0
         while IFS='|' read -r _ _ _ th _ _ _; do
             if ! is_ip "$th"; then
@@ -418,7 +421,7 @@ do_remove() {
 # ============================================================
 self_install() {
     local src
-    src=$(readlink -f "$0")
+    src=$(get_script_path)
     if [[ "$src" == "$SELF_PATH" ]]; then
         ok "rout уже установлен в $SELF_PATH"
         return
@@ -436,10 +439,10 @@ self_uninstall() {
     echo ""
     
     local relays
-    relays=$(conf_list)
-    if [[ -n "$relays" ]]; then
+    relays=$(conf_list)    if [[ -n "$relays" ]]; then
         warn "Найдены активные relay — удаляю..."
-        while IFS='|' read -r id in_port proto target_host target_port target_ip _; do            remove_dnat "$in_port" "$proto" "$target_ip" "$target_port"
+        while IFS='|' read -r id in_port proto target_host target_port target_ip _; do
+            remove_dnat "$in_port" "$proto" "$target_ip" "$target_port"
             ufw_action "delete allow" "$in_port" "$proto"
         done <<< "$relays"
         save_rules
@@ -467,7 +470,7 @@ self_uninstall() {
 }
 
 # ============================================================
-#  Меню (ИСПРАВЛЕНО: цикл while вместо рекурсии для устранения мерцания)
+#  Меню (ИСПРАВЛЕНО: цикл while вместо рекурсии)
 # ============================================================
 show_menu() {
     while true; do
@@ -478,17 +481,19 @@ show_menu() {
         echo ""
         
         local installed=""
-        [[ -f "$SELF_PATH" && "$(readlink -f "$0")" == "$SELF_PATH" ]] && installed=1
+        local current_path
+        current_path=$(get_script_path)
+        [[ -f "$SELF_PATH" && "$current_path" == "$SELF_PATH" ]] && installed=1
         
         echo -e "  ${BOLD}1)${NC} Добавить relay"
         echo -e "  ${BOLD}2)${NC} Удалить relay"
         echo -e "  ${BOLD}3)${NC} Статус"
-        if [[ -z "$installed" ]]; then
-            echo -e "  ${BOLD}4)${NC} Установить rout в систему"
+        if [[ -z "$installed" ]]; then            echo -e "  ${BOLD}4)${NC} Установить rout в систему"
         fi
         echo -e "  ${BOLD}9)${NC} Удалить rout из системы"
         echo -e "  ${BOLD}0)${NC} Выход"
-        echo ""        
+        echo ""
+        
         read -rp "  Выбор: " choice
         case $choice in
             1) do_install ;;
@@ -501,7 +506,7 @@ show_menu() {
         esac
         
         echo ""
-        read -rp "  Нажми Enter для возврата в меню..."
+        read -rp "  Нажмите Enter для возврата в меню..."
     done
 }
 
