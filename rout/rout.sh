@@ -528,7 +528,8 @@ self_uninstall() {
 # ============================================================
 
 show_menu() {
-    clear
+    tput cup 0 0 2>/dev/null || true
+    tput ed 2>/dev/null || true
     echo ""
     echo -e "${BOLD}${CYAN}╔════════════════════════════════════════╗${NC}"
     echo -e "${BOLD}${CYAN}║        rout — relay manager            ║${NC}"
